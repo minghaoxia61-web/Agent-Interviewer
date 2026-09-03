@@ -299,12 +299,10 @@ body {
    ============================================================ */
 @keyframes rise {
   0% { opacity: 0; filter: blur(10px); transform: translateY(14px) scale(.99); }
-  55% { opacity: 1; filter: blur(0); transform: translateY(-3px) translateX(2px) scale(1.004); }
-  75% { transform: translateY(1px) translateX(-1.5px) scale(1); }
-  90% { transform: translateY(-.5px) translateX(.5px); }
+  70% { opacity: 1; filter: blur(0); transform: translateY(-2px) scale(1.002); }
   100% { opacity: 1; filter: blur(0); transform: none; }
 }
-.rise { animation: rise .55s cubic-bezier(.22, 1, .36, 1) both; }
+.rise { animation: rise .5s cubic-bezier(.22, 1, .36, 1) both; }
 @keyframes leave { to { opacity: 0; filter: blur(10px); transform: translateY(-8px) scale(.99); } }
 .leave { animation: leave .22s cubic-bezier(.4, 0, .7, .2) forwards; }
 /* P3R 切屏转场：柔和半透明光带滑过(无硬停留)，配合内容模糊淡出/淡入 */

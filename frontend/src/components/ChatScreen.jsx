@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bot, Flag, Loader2, SendHorizonal, Swords, User, Zap } from 'lucide-react'
 import {
-  finishInterview, getReport, getSessionState, sendMessage, startInterview,
+  finishInterview, getReport, getSessionState, sendMessage, startInterview, WS_BASE,
 } from '../api.js'
 import { Card } from './ui.jsx'
 
@@ -54,8 +54,7 @@ export default function ChatScreen({ session, onFinished }) {
   function connectWs() {
     return new Promise((resolve, reject) => {
       try {
-        const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-        const ws = new WebSocket(`${proto}://${window.location.host}/ws/interview/${session.id}`)
+        const ws = new WebSocket(`${WS_BASE}/ws/interview/${session.id}`)
         ws.onopen = () => { wsReadyRef.current = true; resolve(ws) }
         ws.onerror = () => { if (!wsReadyRef.current) reject(new Error('ws')) }
         ws.onclose = () => { wsReadyRef.current = false }

@@ -152,3 +152,16 @@ cp .env.example .env   # 按需填 Key，不填则 Mock 模式
 docker compose up --build -d
 # 单容器：前端构建产物由 FastAPI 托管，访问 http://localhost:8000
 ```
+
+### GitHub Pages（仅前端 UI 演示）
+
+仓库已带 `.github/workflows/deploy-pages.yml`：push main 即自动构建并发布静态前端。
+启用一次即可（需手动在 GitHub 操作）：
+
+1. GitHub → 仓库 **Settings → Pages → Source 选择 `GitHub Actions`**（保存后重跑一次 workflow）；
+2. 站点地址为 `https://minghaoxia61-web.github.io/Agent-Interviewer/`。
+
+> Pages 无法运行 FastAPI/WebSocket/LLM 后端，无后端时数据区为空属预期。
+> 要连真实数据：把后端部署到任意托管服务（Render / Railway / 云服务器 docker compose），
+> 然后在仓库 **Settings → Secrets and variables → Actions → Variables** 新建
+> `VITE_API_BASE=https://<后端域名>`，再 push 一次触发重部署（前端会自动用该地址请求 REST 与 WebSocket）。
