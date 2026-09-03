@@ -39,15 +39,29 @@ export default function App() {
   const [session, setSession] = useState(null)
   const [report, setReport] = useState(null)
   const [llmMode, setLlmMode] = useState(null)
+  const [focusIdx, setFocusIdx] = useState(() => {
+    const k = localStorage.getItem('rai.module') || 'dashboard'
+    return Math.max(0, NAV.findIndex((n) => n.key === (k === 'report' ? 'archive' : k)))
+  })
+  const [wipe, setWipe] = useState(0)
   const itemRefs = useRef([])
   const cursorRef = useRef(null)
+  const moduleRef = useRef(module)
+  moduleRef.current = module
+  const pendingRef = useRef(null)
+  const firstGo = useRef(true)
 
+  // 切屏：先播放 P3R 遮罩转场，在遮罩盖住屏幕的瞬间再切换模块
   const go = (m) => {
-    setModule(m)
     localStorage.setItem('rai.module', m)
     history.replaceState(null, '', '#' + m)
+    if (m === moduleRef.current) return
+    if (firstGo.current) { setModule(m); return }
+    pendingRef.current = m
+    setWipe((w) => w + 1)
   }
   const activeKey = module === 'report' ? 'archive' : module
+  const activeIdx = NAV.findIndex((n) => n.key === activeKey)
 
   // 支持 URL hash 深链：#dashboard / #board / #report/<sessionId>
   useEffect(() => {
@@ -57,6 +71,41 @@ export default function App() {
     else if (NAV.some((n) => n.key === h)) go(h)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // 首次深链导航不做转场；之后的导航都走遮罩
+  useEffect(() => { firstGo.current = false }, [])
+
+  // 遮罩盖住屏幕(约240ms)时切换模块
+  useEffect(() => {
+    if (!wipe) return
+    const t = setTimeout(() => {
+      if (pendingRef.current) { setModule(pendingRef.current); pendingRef.current = null }
+    }, 240)
+    return () => clearTimeout(t)
+  }, [wipe])
+
+  // 确认/点击切换后，键盘焦点回到当前项
+  useEffect(() => { setFocusIdx(activeIdx) }, [activeIdx])
+
+  // 全局键盘导航：↑↓ 移动光标 / ENTER 确认 / ESC 返回
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setFocusIdx((i) => (i + (e.key === 'ArrowDown' ? 1 : NAV.length - 1)) % NAV.length)
+      } else if (e.key === 'Enter') {
+        if (focusIdx !== activeIdx) go(NAV[focusIdx].key)
+      } else if (e.key === 'Escape') {
+        if (module === 'report') go('archive')
+        else if (focusIdx !== activeIdx) setFocusIdx(activeIdx)
+        else go('dashboard')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusIdx, activeIdx, module])
 
   // 恢复上次未完成的面试会话 + 引擎状态
   useEffect(() => {
@@ -72,14 +121,13 @@ export default function App() {
       .catch(() => localStorage.removeItem('rai.lastSession'))
   }, [])
 
-  // 三角光标跟随选中菜单项
+  // 三角光标跟随键盘焦点（未确认时停在焦点项）
   const placeCursor = useCallback(() => {
-    const idx = NAV.findIndex((n) => n.key === activeKey)
-    const el = itemRefs.current[idx]
+    const el = itemRefs.current[focusIdx]
     if (el && cursorRef.current) {
       cursorRef.current.style.transform = `translateY(${el.offsetTop + el.offsetHeight / 2 - 13}px)`
     }
-  }, [activeKey])
+  }, [focusIdx])
   useLayoutEffect(() => { placeCursor() }, [placeCursor])
   useEffect(() => {
     window.addEventListener('resize', placeCursor)
@@ -168,7 +216,7 @@ export default function App() {
           {NAV.map(({ key, num, label, icon: Icon }, i) => (
             <button key={key} ref={(el) => { itemRefs.current[i] = el }}
               onClick={() => go(key)}
-              className={`m-item ${activeKey === key ? 'active' : ''}`}>
+              className={`m-item ${activeKey === key ? 'active' : ''} ${i === focusIdx && activeKey !== key ? 'focus' : ''}`}>
               <span className="hl" />
               <span className="glow" />
               <span className="num en">{num}</span>
@@ -196,6 +244,9 @@ export default function App() {
         <div className="kb"><span className="btn-k en">ESC</span> 返回</div>
         <div style={{ marginLeft: 'auto' }} className="en kb-brand">P3RE-STYLE · RAI WORKBENCH</div>
       </footer>
+
+      {/* P3R 切屏遮罩转场 */}
+      {wipe > 0 && <div key={wipe} className="p3r-wipe" aria-hidden="true" />}
     </>
   )
 }

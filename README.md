@@ -51,6 +51,12 @@ LLM_MODEL=glm-4-flash
 # DeepSeek: LLM_BASE_URL=https://api.deepseek.com/v1  LLM_MODEL=deepseek-chat
 ```
 
+## 前端设计（Persona 3 Reload 风格）
+
+前端以《女神异闻录 3 Reload》(P3R) 的视觉语言重构：深海蓝水下动态背景（渐变 + 旋转光束 + 焦散水纹 + canvas 光斑/气泡 + 暗角）、棱角切面面板（clip-path 切角 + 青色描边光带）、顶部 HUD（MAIN 索引 + 实时时钟）、左侧竖排菜单 + 红白三角光标、底部键位条，切屏带青色光刃遮罩转场。配色通过 Tailwind v4 `@theme` 重映射默认色板实现全站统一换色。
+
+支持游戏式键盘导航：`↑↓` 移动菜单光标、`ENTER` 确认进入、`ESC` 返回（输入框聚焦时自动让位）。
+
 ## API 一览
 
 | 方法 | 路径 | 说明 |
@@ -120,8 +126,8 @@ data/
 ├── traces/         # 逐轮轨迹 JSONL
 ├── reports/        # 评估报告
 └── uploads/        # 简历原件
-frontend/           # React + Vite + Tailwind v4 + Lucide（五模块工作台）
-scripts/            # 冒烟测试 / 示例 PDF 生成
+frontend/           # React + Vite + Tailwind v4 + Lucide · P3R(女神异闻录3)风格工作台
+scripts/            # 冒烟测试 / 示例 PDF 生成 / headless 视觉走查截图(shot.ps1)
 ```
 
 ## Roadmap
@@ -134,6 +140,7 @@ scripts/            # 冒烟测试 / 示例 PDF 生成
 - [x] WebSocket 流式面试（前端已接入，REST 自动兜底）
 - [x] JD 对比诊断（关键词覆盖率 + 差距补齐建议）
 - [x] 求职投递看板（拖拽换列 + 状态时间线 + 统计）
+- [x] P3R(女神异闻录3)风格前端重构 + 切屏转场 + 键盘导航(↑↓/ENTER/ESC)
 - [ ] 语音交互（TTS/STT）、多轮会话导出
 - [ ] JD 匹配结果持久化与历史对比、岗位订阅聚合
 - [ ] ChromaDB 向量检索替换 n-gram

@@ -156,6 +156,11 @@ body {
 .m-item.active .num { color: #eaf7ff; opacity: .95; text-shadow: 0 0 8px rgba(4, 18, 43, .7); }
 .m-item.active .ico { color: #fff; filter: drop-shadow(0 0 6px rgba(4, 18, 43, .6)); }
 .m-item.active .glow { opacity: 0; }
+/* 键盘焦点（↑↓ 移动、ENTER 确认前的悬停态） */
+.m-item.focus { transform: translateX(3px); }
+.m-item.focus .glow { opacity: .55; }
+.m-item.focus .txt { color: #fff; }
+.m-item.focus .num { color: var(--cyan, #3fe0ff); opacity: 1; }
 /* 未选项波浪浮动 */
 @keyframes p3wave { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 .m-item:not(.active) .txt { animation: p3wave 4s ease-in-out infinite; }
@@ -291,6 +296,13 @@ body {
    ============================================================ */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .rise { animation: rise .4s cubic-bezier(.2, .7, .3, 1) both; }
+/* P3R 切屏遮罩转场：青色光刃扫过，中段盖住屏幕时切换内容 */
+.p3r-wipe { position: fixed; inset: 0; z-index: 80; pointer-events: none; transform: translateX(-115%);
+  background: linear-gradient(100deg, rgba(3, 16, 42, 0) 0%, #062049 16%, #0b3c7d 50%, #062049 84%, rgba(3, 16, 42, 0) 100%);
+  animation: p3rwipe .5s cubic-bezier(.7, 0, .3, 1) forwards; }
+.p3r-wipe::after { content: ''; position: absolute; top: 0; bottom: 0; right: -2px; width: 3px;
+  background: #3fe0ff; box-shadow: 0 0 18px #3fe0ff; }
+@keyframes p3rwipe { 0% { transform: translateX(-115%); } 42% { transform: translateX(0); } 58% { transform: translateX(0); } 100% { transform: translateX(115%); } }
 @keyframes blink { 0%, 100% { opacity: .2 } 50% { opacity: 1 } }
 .typing-dot { animation: blink 1.2s infinite; }
 .typing-dot:nth-child(2) { animation-delay: .2s; }
