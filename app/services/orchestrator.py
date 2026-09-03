@@ -1,0 +1,173 @@
+"""编排层：连接 会话存储 <-> LangGraph 状态机 <-> API 路由。
+
+每个会话首次使用时编译一张图（图节点通过闭包持有会话依赖），
+每轮对话 invoke 一次，并把结果回写到 Session、追加 Trace。
+"""
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, List, Optional
+
+from app.core.agents.graph import build_graph
+from app.core.config import settings
+from app.schemas.interview import STAGE_LABELS
+from app.services.llm import LLMService
+from app.services.rag.retriever import Retriever
+from app.services.reporter import ReportGenerator
+from app.storage.session_store import STORE, Session
+
+_PERSIST_FIELDS = ("focus_idx", "probe_depth", "current_question", "drill_rounds",
+                   "stress_rounds", "finished", "report_md", "overall", "summary")
+_PERSIST_LISTS = ("drill_asked", "vagueness_log", "scores")
+
+
+class SessionNotFound(Exception):
+    pass
+
+
+class InterviewFinished(Exception):
+    pass
+
+
+class InterviewOrchestrator:
+    def __init__(self) -> None:
+        self.llm = LLMService()
+        self.retriever = Retriever(settings.knowledge_dir)
+        self.reporter = ReportGenerator(self.llm)
+        self.store = STORE
+
+    # ------------------------------------------------------------------
+    def _require(self, sid: str) -> Session:
+        sess = self.store.get(sid)
+        if sess is None:
+            raise SessionNotFound(sid)
+        return sess
+
+    def _get_graph(self, sess: Session):
+        if sess.graph is None:
+            deps = SimpleNamespace(llm=self.llm, retriever=self.retriever,
+                                   store=self.store, reporter=self.reporter, settings=settings)
+            sess.graph = build_graph(deps)
+        return sess.graph
+
+    def _invoke(self, sess: Session, state: Dict[str, Any]) -> Dict[str, Any]:
+        app = self._get_graph(sess)
+        try:
+            return app.invoke(state, config={"recursion_limit": 60})
+        except Exception as e:  # noqa: BLE001 - 图内异常统一上抛给路由层
+            raise RuntimeError(f"面试状态机执行失败: {e}") from e
+
+    def _persist(self, sess: Session, result: Dict[str, Any]) -> None:
+        sess.stage = result.get("stage", sess.stage)
+        for f in _PERSIST_FIELDS:
+            if f in result:
+                setattr(sess, f, result[f])
+        for f in _PERSIST_LISTS:
+            if f in result:
+                setattr(sess, f, result[f])
+        self.store.save(sess)
+
+    def _turn_response(self, sess: Session, result: Dict[str, Any],
+                       stage_before: str) -> Dict[str, Any]:
+        decision = result.get("decision") or None
+        reasons = result.get("reasons") or []
+        meta = {"decision": decision, "reasons": reasons,
+                "probe_depth": result.get("probe_depth", sess.probe_depth)}
+        assistant = result.get("assistant_msg", "")
+        self.store.append_message(sess, "assistant", assistant, stage=sess.stage, meta=meta)
+        user_turns = sum(1 for m in sess.messages if m["role"] == "user")
+        self.store.append_trace(sess, {
+            "turn": user_turns, "stage_before": stage_before, "stage_after": sess.stage,
+            "assistant": assistant, "decision": decision, "reasons": reasons,
+            "probe_depth": meta["probe_depth"], "drill_rounds": sess.drill_rounds,
+            "stress_rounds": sess.stress_rounds,
+        })
+        return {
+            "session_id": sess.id,
+            "assistant_message": assistant,
+            "stage": sess.stage,
+            "stage_label": STAGE_LABELS.get(sess.stage, sess.stage),
+            "decision": decision,
+            "decision_reasons": reasons,
+            "probe_depth": meta["probe_depth"],
+            "total_turns": user_turns,
+            "finished": sess.finished,
+        }
+
+    # ------------------------------------------------------------------
+    def start(self, sid: str) -> Dict[str, Any]:
+        sess = self._require(sid)
+        if sess.finished:
+            raise InterviewFinished(sid)
+        stage_before = sess.stage
+        result = self._invoke(sess, {"session_id": sid, "stage": sess.stage, "last_user_msg": ""})
+        self._persist(sess, result)
+        return self._turn_response(sess, result, stage_before)
+
+    def handle_message(self, sid: str, user_text: str,
+                       emit: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        sess = self._require(sid)
+        if sess.finished:
+            raise InterviewFinished(sid)
+        if not (user_text or "").strip():
+            raise ValueError("消息不能为空")
+        stage_before = sess.stage
+        self.store.append_message(sess, "user", user_text.strip(), stage=stage_before)
+        self.store.append_trace(sess, {"turn": sum(1 for m in sess.messages if m["role"] == "user"),
+                                       "event": "user_message", "user": user_text.strip(),
+                                       "stage": stage_before})
+        result = self._invoke(sess, {"session_id": sid, "stage": sess.stage,
+                                     "last_user_msg": user_text.strip(), "emit": emit})
+        self._persist(sess, result)
+        return self._turn_response(sess, result, stage_before)
+
+    # ------------------------------------------------------------------
+    def finish(self, sid: str) -> Dict[str, Any]:
+        """提前结束面试并生成报告（自然结束时由 evaluate 节点自动调用同一生成器）。"""
+        sess = self._require(sid)
+        if not sess.finished:
+            result = self.reporter.generate(sess)
+            sess.overall = result["overall"]
+            sess.summary = result["summary"]
+            sess.scores = result["scores"]
+            sess.report_md = result["markdown"]
+            sess.finished = True
+            sess.stage = "end"
+            self.store.save_report(sess, result["markdown"])
+            self.store.append_trace(sess, {"event": "finish_early"})
+        return self.report_payload(sid)
+
+    def report_payload(self, sid: str) -> Dict[str, Any]:
+        sess = self._require(sid)
+        if not sess.finished:
+            payload = self.finish(sid)
+        else:
+            payload = {
+                "session_id": sess.id,
+                "markdown": sess.report_md,
+                "scores": sess.scores,
+                "overall": sess.overall,
+                "summary": sess.summary,
+                "trace_file": sess.trace_file or None,
+            }
+        return payload
+
+    def state_payload(self, sid: str) -> Dict[str, Any]:
+        sess = self._require(sid)
+        return {
+            "session_id": sess.id,
+            "stage": sess.stage,
+            "stage_label": STAGE_LABELS.get(sess.stage, sess.stage),
+            "target_position": sess.target_position,
+            "total_turns": sum(1 for m in sess.messages if m["role"] == "user"),
+            "probe_depth": sess.probe_depth,
+            "focus_idx": sess.focus_idx,
+            "weakness_count": len(sess.weaknesses),
+            "drill_rounds": sess.drill_rounds,
+            "stress_rounds": sess.stress_rounds,
+            "finished": sess.finished,
+            "diagnosis": sess.diagnosis,
+            "filename": None,
+            "messages": sess.messages,
+        }
+
+
+ORCHESTRATOR = InterviewOrchestrator()

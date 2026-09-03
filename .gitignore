@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# 运行时产物
+data/uploads/
+data/traces/
+data/reports/
+data/sessions/
+data/*.log
+data/tmp_*
+
+# 环境变量
+.env
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

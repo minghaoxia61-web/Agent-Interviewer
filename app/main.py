@@ -1,0 +1,63 @@
+"""RAI (Resume-Agent-Interviewer) 后端入口。
+
+启动：uvicorn app.main:app --reload --port 8000
+"""
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from app.api import (routes_applications, routes_interview, routes_report,
+                     routes_resume, routes_workbench)
+from app.core.config import BASE_DIR, settings
+from app.services.orchestrator import ORCHESTRATOR
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Resume-Agent-Interviewer (RAI)",
+        description="深度理解简历逻辑、具备工业级追问能力、可证伪评估报告的 AI 模拟面试官",
+        version="0.1.0",
+    )
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins if origins != ["*"] else ["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(routes_resume.router)
+    app.include_router(routes_interview.router)
+    app.include_router(routes_report.router)
+    app.include_router(routes_workbench.router)
+    app.include_router(routes_applications.router)
+
+    @app.get("/api/health", tags=["system"])
+    def health():
+        return {
+            "status": "ok",
+            "llm_mode": "mock" if ORCHESTRATOR.llm.mock else "real",
+            "llm_model": settings.llm_model,
+            "knowledge_entries": len(ORCHESTRATOR.retriever.entries),
+        }
+
+    _mount_frontend(app)
+    return app
+
+
+def _mount_frontend(app: FastAPI) -> bool:
+    """生产模式：托管前端构建产物（API 路由已先注册，优先匹配）。"""
+    candidates = []
+    if settings.static_dir:
+        candidates.append(Path(settings.static_dir))
+    candidates.append(BASE_DIR / "frontend" / "dist")
+    candidates.append(BASE_DIR / "static")
+    for c in candidates:
+        if (c / "index.html").exists():
+            app.mount("/", StaticFiles(directory=str(c), html=True), name="frontend")
+            return True
+    return False
+
+
+app = create_app()
