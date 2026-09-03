@@ -169,8 +169,11 @@ body {
 .m-item:nth-child(6):not(.active) .txt { animation-delay: .9s; }
 .m-item:nth-child(7):not(.active) .txt { animation-delay: 1.2s; }
 /* 三角光标 */
-.cursor { position: absolute; left: -2px; top: 0; width: 26px; height: 26px; pointer-events: none; z-index: 5; transition: transform .28s cubic-bezier(.34, 1.56, .64, 1); }
+.cursor { position: absolute; left: -2px; top: 0; width: 26px; height: 26px; pointer-events: none; z-index: 5; transition: transform .45s cubic-bezier(.3, 1.6, .4, 1); }
 .cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 0 6px rgba(255, 59, 92, .7)); }
+/* 移动时的弹性回弹：挤压-拉伸 */
+.cursor.hop svg { animation: cursquash .45s cubic-bezier(.3, 1.6, .4, 1); }
+@keyframes cursquash { 0% { transform: scale(1, 1); } 35% { transform: scale(1.28, .78); } 70% { transform: scale(.9, 1.12); } 100% { transform: scale(1, 1); } }
 .cursor .t-red { fill: var(--red); }
 .cursor .t-white { fill: #fff; }
 .menu-foot { margin-top: auto; padding: 12px 6px 0; font-size: 11px; color: var(--ice2); opacity: .75; line-height: 1.7; }
@@ -294,15 +297,31 @@ body {
 /* ============================================================
    动效 / 滚动条 / 报告排版
    ============================================================ */
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-.rise { animation: rise .4s cubic-bezier(.2, .7, .3, 1) both; }
-/* P3R 切屏遮罩转场：青色光刃扫过，中段盖住屏幕时切换内容 */
-.p3r-wipe { position: fixed; inset: 0; z-index: 80; pointer-events: none; transform: translateX(-115%);
-  background: linear-gradient(100deg, rgba(3, 16, 42, 0) 0%, #062049 16%, #0b3c7d 50%, #062049 84%, rgba(3, 16, 42, 0) 100%);
-  animation: p3rwipe .5s cubic-bezier(.7, 0, .3, 1) forwards; }
-.p3r-wipe::after { content: ''; position: absolute; top: 0; bottom: 0; right: -2px; width: 3px;
-  background: #3fe0ff; box-shadow: 0 0 18px #3fe0ff; }
-@keyframes p3rwipe { 0% { transform: translateX(-115%); } 42% { transform: translateX(0); } 58% { transform: translateX(0); } 100% { transform: translateX(115%); } }
+@keyframes rise {
+  0% { opacity: 0; filter: blur(10px); transform: translateY(14px) scale(.99); }
+  55% { opacity: 1; filter: blur(0); transform: translateY(-3px) translateX(2px) scale(1.004); }
+  75% { transform: translateY(1px) translateX(-1.5px) scale(1); }
+  90% { transform: translateY(-.5px) translateX(.5px); }
+  100% { opacity: 1; filter: blur(0); transform: none; }
+}
+.rise { animation: rise .55s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes leave { to { opacity: 0; filter: blur(10px); transform: translateY(-8px) scale(.99); } }
+.leave { animation: leave .22s cubic-bezier(.4, 0, .7, .2) forwards; }
+/* P3R 切屏转场：柔和半透明光带滑过(无硬停留)，配合内容模糊淡出/淡入 */
+.p3r-wipe { position: fixed; inset: 0; z-index: 80; pointer-events: none; transform: translateX(-120%); opacity: 0;
+  background: linear-gradient(100deg, rgba(3, 16, 42, 0) 0%, rgba(6, 32, 73, .35) 24%, rgba(11, 60, 125, .6) 46%, rgba(63, 224, 255, .25) 50%, rgba(11, 60, 125, .6) 54%, rgba(6, 32, 73, .35) 76%, rgba(3, 16, 42, 0) 100%);
+  background-size: 180% 100%;
+  filter: blur(18px);
+  animation: p3rwipe .8s cubic-bezier(.45, 0, .25, 1) forwards; }
+/* 滞后拖影层：更淡更糊稍慢，跟在主光带后形成余晖 */
+.p3r-wipe.trail { background: linear-gradient(100deg, transparent 0%, rgba(63, 224, 255, .08) 38%, rgba(63, 224, 255, .16) 50%, rgba(63, 224, 255, .08) 62%, transparent 100%);
+  filter: blur(30px); z-index: 79;
+  animation: p3rwipe .95s cubic-bezier(.45, 0, .25, 1) .09s both; }
+.p3r-wipe::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px;
+  background: linear-gradient(180deg, transparent, #3fe0ff, transparent);
+  box-shadow: 0 0 24px 6px rgba(63, 224, 255, .45); }
+/* 视差：外层扫过 + 内层渐变反向漂移 */
+@keyframes p3rwipe { 0% { transform: translateX(-120%); opacity: 0; background-position: 0% 0; } 18% { opacity: 1; } 82% { opacity: 1; } 100% { transform: translateX(120%); opacity: 0; background-position: 100% 0; } }
 @keyframes blink { 0%, 100% { opacity: .2 } 50% { opacity: 1 } }
 .typing-dot { animation: blink 1.2s infinite; }
 .typing-dot:nth-child(2) { animation-delay: .2s; }

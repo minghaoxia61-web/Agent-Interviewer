@@ -44,6 +44,7 @@ export default function App() {
     return Math.max(0, NAV.findIndex((n) => n.key === (k === 'report' ? 'archive' : k)))
   })
   const [wipe, setWipe] = useState(0)
+  const [phase, setPhase] = useState('idle')
   const itemRefs = useRef([])
   const cursorRef = useRef(null)
   const moduleRef = useRef(module)
@@ -51,13 +52,14 @@ export default function App() {
   const pendingRef = useRef(null)
   const firstGo = useRef(true)
 
-  // 切屏：先播放 P3R 遮罩转场，在遮罩盖住屏幕的瞬间再切换模块
+  // 切屏：旧内容模糊淡出 → 柔和光带滑过 → 新内容模糊淡入（丝滑不硬切）
   const go = (m) => {
     localStorage.setItem('rai.module', m)
     history.replaceState(null, '', '#' + m)
     if (m === moduleRef.current) return
     if (firstGo.current) { setModule(m); return }
     pendingRef.current = m
+    setPhase('out')
     setWipe((w) => w + 1)
   }
   const activeKey = module === 'report' ? 'archive' : module
@@ -74,14 +76,15 @@ export default function App() {
   // 首次深链导航不做转场；之后的导航都走遮罩
   useEffect(() => { firstGo.current = false }, [])
 
-  // 遮罩盖住屏幕(约240ms)时切换模块
+  // 旧内容淡出完毕(约220ms)时切换模块，新内容随即模糊淡入
   useEffect(() => {
-    if (!wipe) return
+    if (phase !== 'out') return
     const t = setTimeout(() => {
       if (pendingRef.current) { setModule(pendingRef.current); pendingRef.current = null }
-    }, 240)
+      setPhase('idle')
+    }, 220)
     return () => clearTimeout(t)
-  }, [wipe])
+  }, [phase])
 
   // 确认/点击切换后，键盘焦点回到当前项
   useEffect(() => { setFocusIdx(activeIdx) }, [activeIdx])
@@ -121,11 +124,15 @@ export default function App() {
       .catch(() => localStorage.removeItem('rai.lastSession'))
   }, [])
 
-  // 三角光标跟随键盘焦点（未确认时停在焦点项）
+  // 三角光标跟随键盘焦点（未确认时停在焦点项），移动时触发弹性回弹
   const placeCursor = useCallback(() => {
     const el = itemRefs.current[focusIdx]
     if (el && cursorRef.current) {
       cursorRef.current.style.transform = `translateY(${el.offsetTop + el.offsetHeight / 2 - 13}px)`
+      const c = cursorRef.current
+      c.classList.remove('hop')
+      void c.offsetWidth
+      c.classList.add('hop')
     }
   }, [focusIdx])
   useLayoutEffect(() => { placeCursor() }, [placeCursor])
@@ -231,7 +238,7 @@ export default function App() {
 
         {/* 内容区 */}
         <main className="content">
-          <div key={module} className="rise max-w-6xl mx-auto">
+          <div key={module} className={`${phase === 'out' ? 'leave' : 'rise'} max-w-6xl mx-auto`}>
             {pages[module] || pages.dashboard}
           </div>
         </main>
@@ -245,8 +252,9 @@ export default function App() {
         <div style={{ marginLeft: 'auto' }} className="en kb-brand">P3RE-STYLE · RAI WORKBENCH</div>
       </footer>
 
-      {/* P3R 切屏遮罩转场 */}
+      {/* P3R 切屏转场：主光带 + 滞后拖影层 */}
       {wipe > 0 && <div key={wipe} className="p3r-wipe" aria-hidden="true" />}
+      {wipe > 0 && <div key={`t${wipe}`} className="p3r-wipe trail" aria-hidden="true" />}
     </>
   )
 }
