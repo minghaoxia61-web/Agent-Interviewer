@@ -84,8 +84,10 @@ LLM_MODEL=glm-4-flash
 
 ## 工程取舍
 
-- **会话持久化：自研磁盘快照 vs LangGraph SqliteSaver checkpointer。** 选择快照：应用态（简历/诊断/报告）与图态（阶段/追问深度）
-  本就一体落盘，人类可读、零额外依赖、重启恢复已验证；checkpointer 的增量优势主要在多线程 resume 与时间旅行调试，列入 Roadmap。
+- **持久化：SQLite（rai.db）+ WAL。** v1 用 JSON 快照，v2 迁移到 SQLite：每轮对话原子 upsert（不再有整文件重写的撕裂风险）、
+  按 owner/状态可直接 SQL 查询、单文件好备份；复杂字段（简历/消息/评分）以 JSON TEXT 列存储——它们是整体读写的数据，不需要拆列。
+  旧 JSON 快照与 applications.json 在启动时自动一次性导入；Trace 保留 JSONL（追加型事件日志，与关系数据分离）。
+  LangGraph SqliteSaver checkpointer 仍列在 Roadmap（多线程 resume 场景）。
 - **追问判定：确定性规则 vs LLM 判断。** 追问/推进由 4 条规则决定并随 Trace 落盘——可证伪、可单测、可回归（见上），LLM 只负责话术生成。
 - **Chroma 自动模式的可用性工程**：初始化带 20s 硬超时 + 进程内失败记忆（离线不再反复阻塞启动）+ embedding 预热
   （把"空集合时首次查询才崩"的晚失败提前到 init 阶段暴露）。
@@ -161,17 +163,19 @@ app/
 │   ├── orchestrator.py # 编排层（会话锁串行化）
 │   └── rag/retriever.py# 检索工厂：ngram / bm25 / chroma（auto 自动回落）
 └── storage/
-    ├── session_store.py      # 会话 + Trace + 磁盘快照（重启可恢复）
-    └── application_store.py  # 投递看板存储
+    ├── db.py                # SQLite 基础层（WAL + RLock + schema）
+    ├── session_store.py     # 会话 + Trace + SQLite 持久化（重启可恢复）
+    └── application_store.py # 投递看板存储（SQLite）
 data/
 ├── knowledge/      # 大厂面经知识库（43 题）
 ├── eval/           # 黄金样本、检索标注查询、评测报告
 ├── samples/        # 示例简历（含 PDF 生成脚本）
+├── rai.db          # SQLite 主库（会话/投递记录）
 ├── sessions/ traces/ reports/ uploads/ chroma/
 frontend/           # React + Vite + Tailwind v4 + Lucide · P3R 风格工作台
-tests/              # pytest：规则回归 / API 全链路 / 检索 / 诊断 / 鉴权
+tests/              # pytest：规则回归 / API 全链路 / 检索 / 诊断 / 鉴权 / 访客隔离
 scripts/            # 评测脚本 / 冒烟测试 / 示例 PDF / headless 截图(shot.ps1)
-.github/workflows/  # ci.yml（pytest+构建）· deploy-pages.yml（前端发布）
+.github/workflows/  # ci.yml（pytest+Docker构建+前端）· deploy-pages.yml（前端发布）
 ```
 
 ## Roadmap
@@ -180,7 +184,7 @@ scripts/            # 评测脚本 / 冒烟测试 / 示例 PDF / headless 截图
 - [x] LangGraph 动态追问状态机（项目深挖 → 技术基础 → 压力测试）
 - [x] 大厂面经 RAG 检索出题（ngram / bm25 / chroma 可切换）+ 题库浏览
 - [x] LLM-as-a-Judge 评估报告 + 五维雷达 + 成长趋势
-- [x] 会话持久化（重启恢复）、断点续面
+- [x] 会话持久化（SQLite，重启恢复）、断点续面
 - [x] WebSocket 流式面试（前端已接入，REST 自动兜底）
 - [x] JD 对比诊断（关键词覆盖率 + 差距补齐建议）
 - [x] 求职投递看板（拖拽换列 + 状态时间线 + 统计）
