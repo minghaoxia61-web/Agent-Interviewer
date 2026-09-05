@@ -195,7 +195,19 @@ scripts/            # 评测脚本 / 冒烟测试 / 示例 PDF / headless 截图
 
 ## 部署（公网）
 
-### 方式一：Render 免费层（推荐，仓库已带 `render.yaml` Blueprint）
+### 方式零：Cloudflare Tunnel 临时演示（5 分钟、免费、无需卡）
+
+适合"现在就要给人看"的场景：把本机服务直接暴露成公网地址（演示时保持电脑开机）。
+
+```bash
+winget install Cloudflare.cloudflared        # 或到 GitHub Releases 下载 cloudflared.exe
+cloudflared tunnel --url http://localhost:8000
+# 输出形如 https://xxx-yyy.trycloudflare.com 的地址即是公网入口（每次重启会换）
+```
+
+> Mock 模式下公开访问零成本；若本地切换为真实 LLM，务必先在 .env 设置 ACCESS_TOKEN。
+
+### 方式一：Render 免费层（推荐长期挂机，仓库已带 `render.yaml` Blueprint；需绑 Visa/MC 验证）
 
 1. 打开 [render.com](https://render.com) → 用 GitHub 登录 → **New → Blueprint**，选择本仓库
    （会读取 `render.yaml`；也可以手动 **New → Web Service**，runtime 会自动识别 Dockerfile）；
