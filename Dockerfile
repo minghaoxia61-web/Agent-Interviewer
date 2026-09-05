@@ -17,6 +17,7 @@ COPY app/ ./app
 COPY data/ ./data
 COPY --from=ui /ui/dist ./static
 
-ENV PORT=8000
-EXPOSE 8000
+# 7860 = Hugging Face / 魔搭创空间的约定端口；Render 等平台会注入 PORT 环境变量覆盖此默认值
+ENV PORT=7860
+EXPOSE 7860
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
