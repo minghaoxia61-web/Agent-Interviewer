@@ -1,0 +1,240 @@
+[
+ {
+  "id": "short_01",
+  "answer": "就大概做了下",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "short_02",
+  "answer": "还行吧，效果还可以",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "short_03",
+  "answer": "我们用了 Redis 缓存",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "short_04",
+  "answer": "团队一起做的，我负责一部分",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "short_05",
+  "answer": "大概是这么回事",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "short_06",
+  "answer": "当时时间比较紧",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "short_07",
+  "answer": "没什么特别的方案",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "short_08",
+  "answer": "具体记不清了",
+  "expect_solid": false,
+  "expect_reasons": [
+   "answer_too_short"
+  ]
+ },
+ {
+  "id": "hedge_01",
+  "answer": "我们可能用了消息队列来削峰，大概是这样设计的，应该没什么问题",
+  "expect_solid": false,
+  "expect_reasons": [
+   "hedge_words",
+   "no_causal_chain",
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "hedge_02",
+  "answer": "因为压测好像只跑了一次，大概只覆盖了 2 个核心接口，所以这个 45ms 的数据应该还是有些偏乐观",
+  "expect_solid": false,
+  "expect_reasons": [
+   "hedge_words"
+  ]
+ },
+ {
+  "id": "hedge_03",
+  "answer": "因为数据量才 1 万条，所以应该不会有瓶颈，差不多够用了，很多场景都验证过",
+  "expect_solid": false,
+  "expect_reasons": [
+   "hedge_words"
+  ]
+ },
+ {
+  "id": "hedge_04",
+  "answer": "当时大概是想解决重复下单的问题，可能用了幂等键，应该是在网关层做的",
+  "expect_solid": false,
+  "expect_reasons": [
+   "hedge_words",
+   "no_causal_chain",
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "hedge_05",
+  "answer": "我们好像做了一些缓存预热，可能还有一些随机的过期策略，大概是这样",
+  "expect_solid": false,
+  "expect_reasons": [
+   "hedge_words",
+   "no_causal_chain",
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "nocausal_01",
+  "answer": "我们把接口响应时间从 250ms 优化到了 45ms，压测报告都在内部平台可以查到，覆盖了全部核心接口",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_causal_chain"
+  ]
+ },
+ {
+  "id": "nocausal_02",
+  "answer": "这个服务支撑了日均 10 万条消息，采用了 3 个消费者实例，运行了一年多没有出现重大故障",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_causal_chain"
+  ]
+ },
+ {
+  "id": "nocausal_03",
+  "answer": "缓存设置了 5 分钟 TTL，命中率维持在 90% 以上，热点数据提前预热到了 Redis 集群里",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_causal_chain"
+  ]
+ },
+ {
+  "id": "nocausal_04",
+  "answer": "数据库层面做了 2 张表的分表，单表数据控制在 500 万以内，主键用的是雪花算法生成的",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_causal_chain"
+  ]
+ },
+ {
+  "id": "nonum_01",
+  "answer": "因为热点的商品数据查询非常频繁，所以我们把库存信息放进了本地缓存，并且定时与数据库同步保持最终一致",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "nonum_02",
+  "answer": "由于下单链路涉及库存、订单和支付三个服务，因此我们最终选择了本地消息表方案来保证最终一致性",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "nonum_03",
+  "answer": "这个问题是因为缓存和数据库之间存在时间窗口，所以我们引入了延迟双删的策略来缓解不一致",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "nonum_04",
+  "answer": "我们采用灰度发布来降低风险，因为全量上线一旦出问题回滚成本很高，所以先放一小部分流量验证",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "both_01",
+  "answer": "这个要看具体的业务场景，一般就是加个缓存或者做个异步，差不多都能解决，没有什么特别的地方",
+  "expect_solid": false,
+  "expect_reasons": [
+   "no_numbers",
+   "no_causal_chain"
+  ]
+ },
+ {
+  "id": "both_02",
+  "answer": "系统整体还算稳定，我们做了一些监控和告警，应该能够及时发现线上问题并处理掉",
+  "expect_solid": false,
+  "expect_reasons": [
+   "hedge_words",
+   "no_causal_chain",
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "both_03",
+  "answer": "面试官您说的这个问题我们当时也遇到过，大概就是网络抖动导致的，后来好像自然就恢复了",
+  "expect_solid": false,
+  "expect_reasons": [
+   "hedge_words",
+   "no_numbers"
+  ]
+ },
+ {
+  "id": "solid_01",
+  "answer": "因为压测发现基线接口平均 RT 是 250ms，定位后发现 80% 耗时在重复查询，于是把热点数据放进 Redis 并设置 5 分钟 TTL，改造后压测 RT 降到 45ms",
+  "expect_solid": true,
+  "expect_reasons": []
+ },
+ {
+  "id": "solid_02",
+  "answer": "由于消息量大导致单表写入成为瓶颈，我们按用户 ID 做了 16 张分表，写入吞吐提升了 8 倍，监控显示主从延迟稳定在 100ms 以内",
+  "expect_solid": true,
+  "expect_reasons": []
+ },
+ {
+  "id": "solid_03",
+  "answer": "为了保证幂等，我们在订单表对业务单号建了唯一索引，重复请求会因为唯一键冲突被拒绝，同时网关层用 Redis 记录请求指纹做前置拦截，上线后重复下单率降到了 0.01% 以下",
+  "expect_solid": true,
+  "expect_reasons": []
+ },
+ {
+  "id": "solid_04",
+  "answer": "因为网络抖动导致的超时会被重试放大，所以我们把下游超时从 3 秒降到 800 毫秒，并且只对幂等的查询接口开启重试，错误率从 2% 降到了 0.3%",
+  "expect_solid": true,
+  "expect_reasons": []
+ },
+ {
+  "id": "solid_05",
+  "answer": "由于缓存过期瞬间被大量请求击穿，我们采用了互斥锁加逻辑过期的方案，压测显示缓存重建耗时从 2 秒降到了 50 毫秒，期间 QPS 没有出现明显抖动",
+  "expect_solid": true,
+  "expect_reasons": []
+ },
+ {
+  "id": "solid_06",
+  "answer": "排查时我们先看监控确认是数据库连接池打满，因此把最大连接数从 20 调到 50，同时给慢查询加上了 200 毫秒的阈值告警，之后没有再复发",
+  "expect_solid": true,
+  "expect_reasons": []
+ }
+]
