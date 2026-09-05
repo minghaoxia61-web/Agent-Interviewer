@@ -16,14 +16,29 @@ export function setApiToken(token) {
   else localStorage.removeItem('rai.token')
 }
 
+// 访客标识：数据隔离用（后端按它过滤会话/投递记录），与令牌无关
+export function visitorId() {
+  let v = localStorage.getItem('rai.visitor')
+  if (!v) {
+    v = crypto.randomUUID ? crypto.randomUUID() : 'v-' + Date.now() + '-' + Math.random().toString(36).slice(2)
+    localStorage.setItem('rai.visitor', v)
+  }
+  return v
+}
+
 function authHeaders(extra = {}) {
   const t = apiToken()
-  return t ? { 'X-API-Token': t, ...extra } : { ...extra }
+  const h = { 'X-Visitor-Id': visitorId() }
+  if (t) h['X-API-Token'] = t
+  return { ...h, ...extra }
 }
 
 function wsUrl(path) {
   const t = apiToken()
-  return WS_BASE + path + (t ? `?token=${encodeURIComponent(t)}` : '')
+  const qs = new URLSearchParams()
+  if (t) qs.set('token', t)
+  qs.set('vid', visitorId())
+  return WS_BASE + path + `?${qs.toString()}`
 }
 
 async function handle(res) {

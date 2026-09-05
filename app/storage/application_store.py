@@ -36,17 +36,19 @@ class ApplicationStore:
     def _save(self, items: List[Dict[str, Any]]) -> None:
         self._path.write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    def list(self) -> List[Dict[str, Any]]:
+    def list(self, owner: str = "") -> List[Dict[str, Any]]:
         with self._lock:
             items = self._load()
+        items = [i for i in items if i.get("owner", "anonymous") == owner]
         items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return items
 
-    def create(self, company: str, position: str, status: str = "wishlist",
+    def create(self, owner: str, company: str, position: str, status: str = "wishlist",
                salary: str = "", link: str = "", notes: str = "") -> Dict[str, Any]:
         now = datetime.now().isoformat(timespec="seconds")
         item = {
             "id": uuid.uuid4().hex[:10],
+            "owner": owner,
             "company": company.strip(),
             "position": position.strip(),
             "status": status if status in STATUSES else "wishlist",
@@ -63,11 +65,12 @@ class ApplicationStore:
             self._save(items)
         return item
 
-    def update(self, app_id: str, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update(self, app_id: str, patch: Dict[str, Any],
+               owner: str = "") -> Optional[Dict[str, Any]]:
         with self._lock:
             items = self._load()
             for it in items:
-                if it["id"] != app_id:
+                if it["id"] != app_id or it.get("owner", "anonymous") != owner:
                     continue
                 new_status = patch.get("status")
                 if new_status and new_status in STATUSES and new_status != it["status"]:
@@ -82,10 +85,10 @@ class ApplicationStore:
                 return it
         return None
 
-    def delete(self, app_id: str) -> bool:
+    def delete(self, app_id: str, owner: str = "") -> bool:
         with self._lock:
             items = self._load()
-            rest = [it for it in items if it["id"] != app_id]
+            rest = [it for it in items if not (it["id"] == app_id and it.get("owner", "anonymous") == owner)]
             if len(rest) == len(items):
                 return False
             self._save(rest)

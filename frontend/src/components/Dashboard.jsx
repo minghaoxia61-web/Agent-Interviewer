@@ -57,6 +57,19 @@ export default function Dashboard({ go, onResume, llmMode }) {
           hint={data?.llm_mode === 'real' ? `引擎：${data.llm_model}` : '引擎：Mock 演示模式'} />
       </div>
 
+      {/* LLM 调用观测 */}
+      {data?.llm_stats && (
+        <Card className="p-5">
+          <SectionTitle icon={Zap} title="LLM 调用观测" desc="真实模型调用的次数与耗时（进程内统计）" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div><p className="text-xl font-bold text-white">{data.llm_stats.calls}</p><p className="text-xs text-slate-500">调用次数</p></div>
+            <div><p className="text-xl font-bold text-white">{data.llm_stats.avg_ms}<span className="text-xs">ms</span></p><p className="text-xs text-slate-500">平均耗时</p></div>
+            <div><p className="text-xl font-bold text-white">{data.llm_stats.retries}</p><p className="text-xs text-slate-500">结构化重试</p></div>
+            <div><p className="text-xl font-bold text-white">{data.llm_stats.errors}</p><p className="text-xs text-slate-500">失败次数</p></div>
+          </div>
+        </Card>
+      )}
+
       {/* 模块入口 */}
       <div>
         <SectionTitle icon={BrainCircuit} title="功能模块" desc="Modules" />

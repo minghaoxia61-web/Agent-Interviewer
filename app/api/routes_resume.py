@@ -8,10 +8,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.schemas.resume import Weakness
+from app.core.security import ensure_owner, visitor_id
 from app.services import mock_llm
 from app.services.orchestrator import ORCHESTRATOR
 from app.services.resume_parser import SUPPORTED_SUFFIXES, extract_text, parse_resume
@@ -22,7 +23,8 @@ router = APIRouter(prefix="/api/resume", tags=["resume"])
 
 
 @router.post("/upload", response_model=dict)
-async def upload_resume(file: UploadFile = File(...),
+async def upload_resume(request: Request,
+                        file: UploadFile = File(...),
                         target_position: str = Form("后端开发工程师")):
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
@@ -50,7 +52,8 @@ async def upload_resume(file: UploadFile = File(...),
 
     resume_dict = parsed.model_dump()
     sess = STORE.create(target_position=target_position.strip(), resume=resume_dict,
-                        weaknesses=[], analysis_status="processing")
+                        weaknesses=[], analysis_status="processing",
+                        owner=visitor_id(request))
     # 按会话归档原始简历
     kept = settings.uploads_dir / f"{sess.id}{suffix}"
     kept.write_bytes(content)
@@ -95,11 +98,12 @@ async def upload_resume(file: UploadFile = File(...),
 
 
 @router.get("/{session_id}/analysis")
-def get_analysis(session_id: str):
+def get_analysis(session_id: str, request: Request):
     """轮询简历分析结果（processing / done / failed）。"""
     sess = STORE.get(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="会话不存在，请先上传简历")
+    ensure_owner(sess.owner, request)
     return {
         "session_id": sess.id,
         "analysis_status": sess.analysis_status,
@@ -115,10 +119,11 @@ class JdMatchRequest(BaseModel):
 
 
 @router.post("/{session_id}/jd-match")
-def jd_match(session_id: str, body: JdMatchRequest):
+def jd_match(session_id: str, body: JdMatchRequest, request: Request):
     sess = STORE.get(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="会话不存在，请先上传简历")
+    ensure_owner(sess.owner, request)
     if not body.jd.strip():
         raise HTTPException(status_code=422, detail="JD 文本不能为空")
     return ORCHESTRATOR.llm.jd_match(sess.resume, body.jd, sess.target_position)

@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import { marked } from 'marked'
-import { ArrowLeft, Award, RotateCcw, Target } from 'lucide-react'
+import { ArrowLeft, Award, GitBranch, RotateCcw, Target } from 'lucide-react'
 import RadarChart from './RadarChart.jsx'
 import { Card, ScoreChip, SectionTitle } from './ui.jsx'
 
-export default function ReportScreen({ report, onBack, onRestart }) {
+export default function ReportScreen({ report, onBack, onRestart, onReview }) {
   const html = useMemo(() => marked.parse(report.markdown || ''), [report.markdown])
 
   return (

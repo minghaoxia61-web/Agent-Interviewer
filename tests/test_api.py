@@ -146,3 +146,44 @@ def test_access_token_guard(client, monkeypatch):
     # 错误令牌
     assert client.get("/api/workbench/dashboard",
                       headers={"X-API-Token": "wrong"}).status_code == 401
+
+
+def test_visitor_isolation(client):
+    """不同访客的数据互相不可见（隐私隔离）。"""
+    sid = _upload(client)["session_id"]
+    # 其他访客访问 → 404（不泄露存在性）
+    assert client.get(f"/api/interview/{sid}/state",
+                      headers={"X-Visitor-Id": "visitor-b"}).status_code == 404
+    # 属主正常访问
+    assert client.get(f"/api/interview/{sid}/state").status_code == 200
+    # 仪表盘按访客过滤
+    assert client.get("/api/workbench/dashboard").json()["session_count"] >= 1
+    assert client.get("/api/workbench/dashboard",
+                      headers={"X-Visitor-Id": "visitor-b"}).json()["session_count"] == 0
+
+
+def test_board_isolation(client):
+    aid = client.post("/api/applications",
+                      json={"company": "A公司", "position": "后端"},
+                      headers={"X-Visitor-Id": "visitor-a"}).json()["id"]
+    assert client.get("/api/applications",
+                      headers={"X-Visitor-Id": "visitor-b"}).json()["total"] == 0
+    assert client.put(f"/api/applications/{aid}", json={"status": "offer"},
+                      headers={"X-Visitor-Id": "visitor-b"}).status_code == 404
+    assert client.delete(f"/api/applications/{aid}",
+                         headers={"X-Visitor-Id": "visitor-a"}).status_code == 200
+
+
+def test_ws_stream_start_and_message(client):
+    sid = _upload(client)["session_id"]
+    with client.websocket_connect(f"/ws/interview/{sid}?vid=anonymous") as ws:
+        ws.send_json({"type": "start"})
+        frames = []
+        while True:
+            f = ws.receive_json()
+            frames.append(f)
+            if f["type"] == "final":
+                break
+    assert any(f["type"] == "token" for f in frames), "开场必须流式输出 token 帧"
+    assert frames[-1]["assistant_message"]
+    assert frames[-1]["stage"] == "project_probing"

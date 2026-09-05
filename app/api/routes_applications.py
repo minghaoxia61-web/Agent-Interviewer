@@ -1,9 +1,10 @@
 """求职投递看板 CRUD API。"""
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.core.security import visitor_id
 from app.storage.application_store import APPLICATIONS, STATUSES
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
@@ -28,8 +29,8 @@ class ApplicationPatch(BaseModel):
 
 
 @router.get("")
-def list_applications():
-    items = APPLICATIONS.list()
+def list_applications(request: Request):
+    items = APPLICATIONS.list(owner=visitor_id(request))
     return {
         "statuses": STATUSES,
         "total": len(items),
@@ -38,24 +39,24 @@ def list_applications():
 
 
 @router.post("")
-def create_application(body: ApplicationIn):
+def create_application(body: ApplicationIn, request: Request):
     if not body.company.strip() or not body.position.strip():
         raise HTTPException(status_code=422, detail="公司和岗位不能为空")
     if body.status not in STATUSES:
         raise HTTPException(status_code=422, detail=f"非法状态，可选：{list(STATUSES)}")
-    return APPLICATIONS.create(**body.model_dump())
+    return APPLICATIONS.create(owner=visitor_id(request), **body.model_dump())
 
 
 @router.put("/{app_id}")
-def update_application(app_id: str, body: ApplicationPatch):
-    item = APPLICATIONS.update(app_id, body.model_dump(exclude_none=True))
+def update_application(app_id: str, body: ApplicationPatch, request: Request):
+    item = APPLICATIONS.update(app_id, body.model_dump(exclude_none=True), owner=visitor_id(request))
     if item is None:
         raise HTTPException(status_code=404, detail="投递记录不存在")
     return item
 
 
 @router.delete("/{app_id}")
-def delete_application(app_id: str):
-    if not APPLICATIONS.delete(app_id):
+def delete_application(app_id: str, request: Request):
+    if not APPLICATIONS.delete(app_id, owner=visitor_id(request)):
         raise HTTPException(status_code=404, detail="投递记录不存在")
     return {"deleted": True}

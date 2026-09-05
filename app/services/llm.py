@@ -2,10 +2,12 @@
 
 - 未配置 LLM_API_KEY 时自动进入 Mock 模式（确定性输出，全流程可跑通）；
 - 高层方法（parse_resume / dig_weaknesses / 面试话术 / judge）对上层屏蔽模式差异；
-- emit 回调用于 WebSocket 流式输出。
+- emit 回调用于 WebSocket 流式输出；
+- 所有真实调用计入观测统计（次数/耗时/字符量），供工作台面板展示。
 """
 import json
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 from app.core import prompts
@@ -29,12 +31,26 @@ class LLMService:
                 base_url=settings.llm_base_url,
                 timeout=settings.llm_timeout,
             )
+        # 观测统计：真实调用的次数/耗时/字符量（Mock 调用不计入）
+        self.stats = {"calls": 0, "errors": 0, "retries": 0,
+                      "total_ms": 0.0, "chars_in": 0, "chars_out": 0}
+        self.recent_calls: List[Dict[str, Any]] = []
+
+    def _record(self, kind: str, t0: float, chars_in: int, chars_out: int) -> None:
+        ms = round((time.perf_counter() - t0) * 1000, 1)
+        self.stats["calls"] += 1
+        self.stats["total_ms"] = round(self.stats["total_ms"] + ms, 1)
+        self.stats["chars_in"] += chars_in
+        self.stats["chars_out"] += chars_out
+        self.recent_calls.append({"kind": kind, "ms": ms, "chars_in": chars_in,
+                                  "chars_out": chars_out})
+        del self.recent_calls[:-50]
 
     # ------------------------------------------------------------------
     # 底层调用
     # ------------------------------------------------------------------
     def chat(self, system: str, user: str, temperature: Optional[float] = None,
-             emit: Optional[Callable[[str], None]] = None) -> str:
+             emit: Optional[Callable[[str], None]] = None, kind: str = "chat") -> str:
         if self.mock:
             raise LLMError("mock mode has no raw chat")
         kwargs: Dict[str, Any] = dict(
@@ -45,6 +61,8 @@ class LLMService:
                 {"role": "user", "content": user},
             ],
         )
+        t0 = time.perf_counter()
+        result = ""
         try:
             if emit:
                 kwargs["stream"] = True
@@ -55,10 +73,14 @@ class LLMService:
                     if piece:
                         chunks.append(piece)
                         emit(piece)
-                return "".join(chunks)
-            resp = self._client.chat.completions.create(**kwargs)
-            return resp.choices[0].message.content or ""
+                result = "".join(chunks)
+            else:
+                resp = self._client.chat.completions.create(**kwargs)
+                result = resp.choices[0].message.content or ""
+            self._record(kind, t0, len(system) + len(user), len(result))
+            return result
         except Exception as e:  # noqa: BLE001 - 统一转成业务异常
+            self.stats["errors"] += 1
             raise LLMError(f"LLM 调用失败: {e}") from e
 
     @staticmethod
@@ -78,14 +100,15 @@ class LLMService:
 
     def chat_json(self, system: str, user: str, temperature: Optional[float] = None) -> Any:
         """要求 JSON 输出的调用：解析失败自动带提醒重试一次（结构化输出韧性）。"""
-        raw = self.chat(system, user, temperature=temperature)
+        raw = self.chat(system, user, temperature=temperature, kind="json")
         try:
             return self._extract_json(raw)
         except ValueError:
+            self.stats["retries"] += 1
             retry = self.chat(
                 system,
                 user + "\n\n再次强调：只输出一个合法的 JSON，不要任何解释、前后缀或 Markdown 代码块标记。",
-                temperature=0.1,
+                temperature=0.1, kind="json_retry",
             )
             return self._extract_json(retry)
 
@@ -103,6 +126,24 @@ class LLMService:
         data.setdefault("raw_text_chars", len(text))
         return data
 
+    @staticmethod
+    def _clean_dig(data: Any) -> List[Dict[str, Any]]:
+        """dig 输出的 schema 校验：字段齐全 + dimension 枚举合法。"""
+        allowed = {"magic_number", "vague_scope", "buzzword_stack", "missing_metric"}
+        out: List[Dict[str, Any]] = []
+        if not isinstance(data, list):
+            return out
+        for item in data[:3]:
+            if not isinstance(item, dict):
+                continue
+            if not all(isinstance(item.get(k), str) and item.get(k).strip()
+                       for k in ("quote", "reason", "probe_angle")):
+                continue
+            if item.get("dimension") not in allowed:
+                item["dimension"] = "vague_scope"
+            out.append(item)
+        return out
+
     def dig_weaknesses(self, resume: Dict[str, Any]) -> List[Dict[str, Any]]:
         if self.mock:
             return mock_llm.dig_weaknesses(resume)
@@ -110,10 +151,20 @@ class LLMService:
             target_position=resume.get("target_position") or "未指定",
             resume_json=json.dumps(resume, ensure_ascii=False)[:6000],
         )
-        data = self.chat_json(prompts.RESUME_DIG_SYSTEM, user, temperature=0.3)
-        if not isinstance(data, list):
-            raise ValueError("漏洞挖掘输出不是数组")
-        return data[:3]
+        # schema 校验不过 → 带字段说明重试一次 → 仍失败抛错（上层回落启发式）
+        reminder = ""
+        last_err: Exception = ValueError("dig 输出为空")
+        for _ in range(2):
+            data = self.chat_json(prompts.RESUME_DIG_SYSTEM, user + reminder, temperature=0.3)
+            cleaned = self._clean_dig(data)
+            if cleaned:
+                return cleaned
+            last_err = ValueError("dig 输出字段不符合 schema")
+            self.stats["retries"] += 1
+            reminder = ("\n\n再次强调：只输出 JSON 数组，每个元素必须包含字符串字段 "
+                        "quote / reason / probe_angle，且 dimension 只能取 "
+                        "magic_number / vague_scope / buzzword_stack / missing_metric 之一。")
+        raise ValueError("漏洞挖掘输出字段不符合 schema") from last_err
 
     def diagnose_resume(self, resume: Dict[str, Any], target_position: str) -> Dict[str, Any]:
         """简历体检：真实 LLM 优先，任何异常回落到确定性启发式（app.services.diagnosis）。"""

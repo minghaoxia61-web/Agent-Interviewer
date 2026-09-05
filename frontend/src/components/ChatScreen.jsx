@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bot, Flag, Loader2, SendHorizonal, Swords, User, Zap } from 'lucide-react'
+import {
+  Bot, Flag, Loader2, Mic, MicOff, SendHorizonal, Swords, User, Volume2, VolumeX, Zap,
+} from 'lucide-react'
 import {
   finishInterview, getReport, getSessionState, sendMessage, startInterview, wsUrl,
 } from '../api.js'
@@ -50,6 +52,54 @@ export default function ChatScreen({ session, onFinished }) {
   const wsRef = useRef(null)
   const wsReadyRef = useRef(false)
 
+  // ---------- 语音面试（Web Speech API，纯浏览器实现） ----------
+  const [ttsOn, setTtsOn] = useState(() => localStorage.getItem('rai.tts') === '1')
+  const [listening, setListening] = useState(false)
+  const sttSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+  const ttsRef = useRef(ttsOn)
+  ttsRef.current = ttsOn
+  const recRef = useRef(null)
+  const inputRef = useRef('')
+  inputRef.current = input
+
+  function speak(text) {
+    if (!ttsRef.current || !('speechSynthesis' in window) || !text) return
+    window.speechSynthesis.cancel()
+    const u = new SpeechSynthesisUtterance(text.replace(/\s+/g, ' ').slice(0, 600))
+    u.lang = 'zh-CN'
+    u.rate = 1.05
+    window.speechSynthesis.speak(u)
+  }
+
+  function toggleMic() {
+    if (listening) { recRef.current?.stop(); return }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { setError('当前浏览器不支持语音识别，请使用 Chrome / Edge'); return }
+    const rec = new SR()
+    rec.lang = 'zh-CN'
+    rec.interimResults = true
+    rec.continuous = false
+    let finalText = ''
+    rec.onresult = (e) => {
+      let interim = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) finalText += t
+        else interim += t
+      }
+      setInput((finalText + interim).trim())
+    }
+    rec.onerror = () => setListening(false)
+    rec.onend = () => {
+      setListening(false)
+      const text = (finalText.trim() || inputRef.current).trim()
+      if (text && !thinking) sendRef.current(text)
+    }
+    recRef.current = rec
+    setListening(true)
+    try { rec.start() } catch { setListening(false) }
+  }
+
   // ---------- WebSocket ----------
   function connectWs() {
     return new Promise((resolve, reject) => {
@@ -97,6 +147,7 @@ export default function ChatScreen({ session, onFinished }) {
       }
       return [...prev, finalMsg]
     })
+    speak(frame.assistant_message)
     if (frame.finished) {
       getReport(session.id).then(onFinished).catch((e) => setError(e.message))
     }
@@ -151,8 +202,8 @@ export default function ChatScreen({ session, onFinished }) {
   }, [messages, thinking])
 
   // ---------- 发送 ----------
-  async function send() {
-    const text = input.trim()
+  async function send(textArg) {
+    const text = (textArg ?? input).trim()
     if (!text || thinking) return
     setInput('')
     setError('')
@@ -171,6 +222,8 @@ export default function ChatScreen({ session, onFinished }) {
       setThinking(false)
     }
   }
+  const sendRef = useRef(send)
+  sendRef.current = send
 
   async function endNow() {
     if (ending) return
@@ -205,6 +258,16 @@ export default function ChatScreen({ session, onFinished }) {
           <p className="text-xs text-slate-500 truncate">{session.filename || '上次会话'}</p>
         </div>
         <div className="ml-auto hidden md:block"><StageBar stage={stage} /></div>
+        <button onClick={() => {
+          const next = !ttsOn
+          setTtsOn(next)
+          localStorage.setItem('rai.tts', next ? '1' : '0')
+          if (!next) window.speechSynthesis?.cancel()
+        }}
+          title={ttsOn ? '关闭语音朗读' : '朗读面试官提问'}
+          className={`p-2 rounded-lg border shrink-0 ${ttsOn ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-slate-700 text-slate-500'}`}>
+          {ttsOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+        </button>
         <button onClick={endNow} disabled={ending}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-rose-500/40 text-rose-300 hover:bg-rose-500/10 disabled:opacity-50 shrink-0">
           <Flag className="w-3.5 h-3.5" /> {ending ? '生成中…' : '结束面试'}
@@ -256,6 +319,16 @@ export default function ChatScreen({ session, onFinished }) {
 
       {/* 输入区 */}
       <div className="mt-3 flex items-end gap-2">
+        {sttSupported && (
+          <button onClick={toggleMic} disabled={thinking}
+            title={listening ? '停止录音并发送' : '语音输入回答'}
+            className={`self-stretch px-3 rounded-xl border transition-colors disabled:opacity-40 ${
+              listening
+                ? 'border-rose-500/60 bg-rose-500/15 text-rose-300 animate-pulse'
+                : 'border-slate-700 text-slate-400 hover:border-indigo-500/50 hover:text-indigo-300'}`}>
+            {listening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          </button>
+        )}
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}

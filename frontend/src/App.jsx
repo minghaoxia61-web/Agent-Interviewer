@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import {
   Briefcase, Columns3, FileSearch, LayoutDashboard, Library, Swords, TrendingUp,
 } from 'lucide-react'
-import { getSessionState, setApiToken } from './api.js'
+import { getReport, getReview, getSessionState, setApiToken } from './api.js'
 import Dashboard from './components/Dashboard.jsx'
 import DiagnosisScreen from './components/DiagnosisScreen.jsx'
 import ChatScreen from './components/ChatScreen.jsx'
@@ -10,6 +10,7 @@ import QuestionBank from './components/QuestionBank.jsx'
 import Board from './components/Board.jsx'
 import Archive from './components/Archive.jsx'
 import ReportScreen from './components/ReportScreen.jsx'
+import ReviewView from './components/ReviewView.jsx'
 import P3RBackground from './components/P3RBackground.jsx'
 import { EmptyState } from './components/ui.jsx'
 
@@ -38,6 +39,7 @@ export default function App() {
   const [module, setModule] = useState(() => localStorage.getItem('rai.module') || 'dashboard')
   const [session, setSession] = useState(null)
   const [report, setReport] = useState(null)
+  const [reviewData, setReviewData] = useState(null)
   const [llmMode, setLlmMode] = useState(null)
   const [focusIdx, setFocusIdx] = useState(() => {
     const k = localStorage.getItem('rai.module') || 'dashboard'
@@ -62,7 +64,7 @@ export default function App() {
     setPhase('out')
     setWipe((w) => w + 1)
   }
-  const activeKey = module === 'report' ? 'archive' : module
+  const activeKey = (module === 'report' || module === 'review') ? 'archive' : module
   const activeIdx = NAV.findIndex((n) => n.key === activeKey)
 
   // 支持 URL hash 深链：#dashboard / #board / #report/<sessionId>
@@ -100,7 +102,7 @@ export default function App() {
       } else if (e.key === 'Enter') {
         if (focusIdx !== activeIdx) go(NAV[focusIdx].key)
       } else if (e.key === 'Escape') {
-        if (module === 'report') go('archive')
+        if (module === 'report' || module === 'review') go('archive')
         else if (focusIdx !== activeIdx) setFocusIdx(activeIdx)
         else go('dashboard')
       }
@@ -163,6 +165,10 @@ export default function App() {
     import('./api.js').then(({ getReport }) =>
       getReport(sid).then((r) => { setReport(r); go('report') }))
   }
+  function openReview(sid) {
+    import('./api.js').then(({ getReview }) =>
+      getReview(sid).then((r) => { setReviewData(r); go('review') }))
+  }
 
   const pages = {
     dashboard: <Dashboard go={go} onResume={resumeSession} llmMode={llmMode} />,
@@ -185,8 +191,16 @@ export default function App() {
       ),
     questions: <QuestionBank />,
     board: <Board />,
-    archive: <Archive onView={openReport} onResume={resumeSession} go={go} />,
-    report: <ReportScreen report={report} onBack={() => go('archive')} onRestart={() => go('diagnosis')} />,
+    archive: <Archive onView={openReport} onReview={openReview} onResume={resumeSession} go={go} />,
+    report: (
+      <ReportScreen
+        report={report}
+        onBack={() => go('archive')}
+        onRestart={() => go('diagnosis')}
+        onReview={() => openReview(report?.session_id)}
+      />
+    ),
+    review: <ReviewView review={reviewData} onBack={() => go('archive')} />,
   }
 
   const activeNum = NAV.find((n) => n.key === activeKey)?.num || '01'

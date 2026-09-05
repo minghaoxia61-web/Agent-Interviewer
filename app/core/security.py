@@ -56,3 +56,22 @@ def guard_ws(websocket: WebSocket) -> bool:
     """WebSocket 握手校验。失败时由调用方 accept 后以 4401 关闭。"""
     provided = websocket.query_params.get("token", "")
     return _token_ok(provided)
+
+
+def visitor_id(request: Request) -> str:
+    """访客标识：前端生成的随机 ID（X-Visitor-Id 头），用于数据隔离。
+
+    注意这是隐私隔离而非安全边界——目的是多人访问公开演示时互不可见对方数据。
+    """
+    v = (request.headers.get("X-Visitor-Id") or request.query_params.get("vid") or "").strip()
+    return v[:64] or "anonymous"
+
+
+def visitor_id_ws(websocket: WebSocket) -> str:
+    return (websocket.query_params.get("vid") or "").strip()[:64] or "anonymous"
+
+
+def ensure_owner(owner: str, request: Request) -> None:
+    """校验会话归属；不匹配时按 404 处理（不泄露存在性）。"""
+    if owner and owner != visitor_id(request):
+        raise HTTPException(status_code=404, detail="会话不存在")

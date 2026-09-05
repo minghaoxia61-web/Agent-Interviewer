@@ -9,7 +9,7 @@ const STAGE_LABELS = {
   stress_test: '压力测试', evaluation: '评估中', end: '已结束',
 }
 
-export default function Archive({ onView, onResume, go }) {
+export default function Archive({ onView, onReview, onResume, go }) {
   const [sessions, setSessions] = useState(null)
 
   useEffect(() => { getSessions().then(setSessions).catch(() => {}) }, [])
@@ -69,6 +69,11 @@ export default function Archive({ onView, onResume, go }) {
                 ? <ScoreChip value={s.overall} suffix=" / 10" />
                 : <span className="chip border-indigo-500/30 bg-indigo-500/10 text-indigo-300">进行中</span>}
               <div className="flex gap-2">
+                {s.total_turns > 0 && (
+                  <button className="btn-ghost !px-3 !py-1.5 text-xs" onClick={() => onReview(s.id)}>
+                    <GitBranch className="w-3.5 h-3.5" /> 复盘
+                  </button>
+                )}
                 {s.finished
                   ? <button className="btn-ghost !px-3 !py-1.5 text-xs" onClick={() => onView(s.id)}>
                       <FileText className="w-3.5 h-3.5" /> 查看报告

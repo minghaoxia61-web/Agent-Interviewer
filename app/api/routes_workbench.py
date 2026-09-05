@@ -1,18 +1,19 @@
-"""就业工作台 API：仪表盘 / 会话档案 / 真题题库。"""
+"""就业工作台 API：仪表盘 / 会话档案 / 真题题库 / LLM 观测。"""
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.core.config import settings
+from app.core.security import visitor_id
 from app.services.orchestrator import ORCHESTRATOR
 
 router = APIRouter(prefix="/api/workbench", tags=["workbench"])
 
 
-def _load_sessions() -> List[Dict[str, Any]]:
-    """读取全部会话快照（含进行中），按创建时间倒序。"""
+def _load_sessions(owner: str) -> List[Dict[str, Any]]:
+    """读取当前访客的会话快照（含进行中），按创建时间倒序。"""
     out: List[Dict[str, Any]] = []
     sdir = settings.data_dir / "sessions"
     if not sdir.exists():
@@ -21,6 +22,9 @@ def _load_sessions() -> List[Dict[str, Any]]:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
+            continue
+        # 多访客数据隔离：仅返回属于当前访客的会话
+        if data.get("owner", "anonymous") != owner:
             continue
         messages = data.get("messages") or []
         out.append({
@@ -40,12 +44,14 @@ def _load_sessions() -> List[Dict[str, Any]]:
 
 
 @router.get("/dashboard")
-def dashboard() -> Dict[str, Any]:
-    sessions = _load_sessions()
+def dashboard(request: Request) -> Dict[str, Any]:
+    sessions = _load_sessions(visitor_id(request))
     scored = [s["overall"] for s in sessions if s.get("overall")]
     finished = [s for s in sessions if s["finished"]]
     unfinished = next((s for s in sessions if not s["finished"]), None)
     weak_total = sum(s["weakness_count"] for s in sessions)
+    stats = dict(ORCHESTRATOR.llm.stats)
+    stats["avg_ms"] = round(stats["total_ms"] / stats["calls"], 1) if stats["calls"] else 0
     return {
         "llm_mode": "mock" if ORCHESTRATOR.llm.mock else "real",
         "llm_model": settings.llm_model,
@@ -55,14 +61,25 @@ def dashboard() -> Dict[str, Any]:
         "avg_score": round(sum(scored) / len(scored), 1) if scored else None,
         "best_score": max(scored) if scored else None,
         "weakness_total": weak_total,
+        "llm_stats": stats,
         "unfinished": unfinished,
         "recent": sessions[:5],
     }
 
 
 @router.get("/sessions")
-def list_sessions() -> List[Dict[str, Any]]:
-    return _load_sessions()
+def list_sessions(request: Request) -> List[Dict[str, Any]]:
+    return _load_sessions(visitor_id(request))
+
+
+@router.get("/llm-stats")
+def llm_stats() -> Dict[str, Any]:
+    s = dict(ORCHESTRATOR.llm.stats)
+    s["avg_ms"] = round(s["total_ms"] / s["calls"], 1) if s["calls"] else 0
+    s["recent"] = list(ORCHESTRATOR.llm.recent_calls)[-12:]
+    s["llm_mode"] = "mock" if ORCHESTRATOR.llm.mock else "real"
+    s["llm_model"] = settings.llm_model
+    return s
 
 
 @router.get("/questions")
