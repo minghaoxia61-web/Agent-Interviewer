@@ -27,6 +27,11 @@ class InterviewFinished(Exception):
     pass
 
 
+class AnalysisInProgress(Exception):
+    """简历 AI 分析（漏洞挖掘/体检诊断）仍在后台执行。"""
+    pass
+
+
 class InterviewOrchestrator:
     def __init__(self) -> None:
         self.llm = LLMService()
@@ -98,6 +103,8 @@ class InterviewOrchestrator:
         sess = self._require(sid)
         if sess.finished:
             raise InterviewFinished(sid)
+        if sess.analysis_status == "processing":
+            raise AnalysisInProgress(sid)
         with sess.turn_lock:
             if sess.messages:  # 已开过场：直接返回当前状态，避免重复 intro
                 user_turns = sum(1 for m in sess.messages if m["role"] == "user")

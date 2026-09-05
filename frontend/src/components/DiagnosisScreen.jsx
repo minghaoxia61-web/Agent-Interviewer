@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle, ArrowRight, FileText, Loader2, ShieldCheck, Target, UploadCloud,
 } from 'lucide-react'
-import { matchJd, uploadResume } from '../api.js'
+import { getAnalysis, matchJd, uploadResume } from '../api.js'
 import { Card, DimBar, ScoreChip, ScoreRing, SectionTitle } from './ui.jsx'
 
 const DIM_LABELS = {
@@ -62,6 +62,20 @@ export default function DiagnosisScreen({ onUploaded, go }) {
     doUpload(f)
   }
 
+  // 后台分析轮询：挖掘与诊断并行执行完成后自动刷新结果
+  useEffect(() => {
+    if (!result || result.analysis_status !== 'processing') return
+    const timer = setInterval(async () => {
+      try {
+        const a = await getAnalysis(result.session_id)
+        if (a.analysis_status !== 'processing') {
+          setResult((prev) => ({ ...prev, ...a }))
+        }
+      } catch { /* 网络抖动时继续轮询 */ }
+    }, 2500)
+    return () => clearInterval(timer)
+  }, [result?.session_id, result?.analysis_status])
+
   return (
     <div className="space-y-6">
       <div className="page-title" style={{ marginBottom: 8 }}>
@@ -120,6 +134,22 @@ export default function DiagnosisScreen({ onUploaded, go }) {
         </Card>
       ) : (
         <>
+          {result.analysis_status === 'processing' ? (
+            <Card className="p-12 flex flex-col items-center text-center">
+              <Loader2 className="w-10 h-10 text-indigo-400 animate-spin mb-4" />
+              <p className="text-slate-200 font-medium">AI 正在并行执行漏洞挖掘与体检诊断…</p>
+              <p className="text-xs text-slate-500 mt-2">
+                真实 LLM 模式约需 15~40 秒，完成后自动展示结果。此页面可以随时离开，分析在后台继续。
+              </p>
+            </Card>
+          ) : result.analysis_status === 'failed' ? (
+            <Card className="p-12 text-center">
+              <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-3" />
+              <p className="text-slate-200 font-medium">分析失败：{result.analysis_error || '未知错误'}</p>
+              <button className="btn-ghost mt-4" onClick={() => setResult(null)}>重新上传</button>
+            </Card>
+          ) : (
+          <>
           {/* 体检总览 */}
           <Card className="p-6 lg:p-7">
             <SectionTitle icon={ShieldCheck} title="简历体检报告"
@@ -174,8 +204,10 @@ export default function DiagnosisScreen({ onUploaded, go }) {
               带着这些疑点开始模拟面试 <ArrowRight className="w-4 h-4" />
             </button>
           </Card>
+          </>
+          )}
 
-          {/* JD 对比诊断 */}
+          {/* JD 对比诊断（resume 解析完成即可用，无需等待后台分析） */}
           <Card className="p-6 lg:p-7">
             <SectionTitle icon={Target} title="JD 匹配度分析"
               desc="粘贴目标岗位的 JD 描述，对比简历计算关键词覆盖率与差距" />

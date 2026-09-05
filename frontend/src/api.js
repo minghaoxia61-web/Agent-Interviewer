@@ -131,4 +131,9 @@ export async function matchJd(sessionId, jd) {
   return handle(res)
 }
 
+export async function getAnalysis(sessionId) {
+  const res = await fetch(A + `/api/resume/${sessionId}/analysis`, { headers: authHeaders() })
+  return handle(res)
+}
+
 export { wsUrl }

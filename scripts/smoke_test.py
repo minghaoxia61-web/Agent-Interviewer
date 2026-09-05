@@ -5,6 +5,7 @@
 """
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,13 +39,20 @@ def main() -> None:
     check("health", r.status_code == 200 and r.json()["status"] == "ok",
           f"llm_mode={r.json().get('llm_mode')}")
 
-    # 2. 上传简历（Markdown）
+    # 2. 上传简历（Markdown）→ 后台并行分析 → 轮询结果
     r = client.post("/api/resume/upload",
                     files={"file": ("sample_resume.md", SAMPLE.read_bytes(), "text/markdown")},
                     data={"target_position": "后端开发工程师"})
     check("upload", r.status_code == 200, f"status={r.status_code}")
     data = r.json()
     sid = data["session_id"]
+    for _ in range(80):
+        a = client.get(f"/api/resume/{sid}/analysis").json()
+        if a["analysis_status"] == "done":
+            break
+        time.sleep(0.25)
+    check("async_analysis_done", a["analysis_status"] == "done")
+    data["weaknesses"] = a["weaknesses"]
     check("weaknesses_dug", len(data["weaknesses"]) >= 1,
           f"{len(data['weaknesses'])} 个疑点: " + "; ".join(w["quote"][:18] for w in data["weaknesses"]))
 

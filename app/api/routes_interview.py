@@ -7,7 +7,8 @@ from app.core.config import settings
 from app.core.security import limiter, guard_ws
 from app.schemas.interview import (MessageRequest, MessageResponse, SessionStateResponse,
                                    StartResponse)
-from app.services.orchestrator import (ORCHESTRATOR, InterviewFinished, SessionNotFound)
+from app.services.orchestrator import (ORCHESTRATOR, AnalysisInProgress,
+                                       InterviewFinished, SessionNotFound)
 
 router = APIRouter(tags=["interview"])
 ws_router = APIRouter(tags=["interview-ws"])
@@ -18,6 +19,8 @@ def _map_orchestrator_error(e: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail="会话不存在，请先上传简历")
     if isinstance(e, InterviewFinished):
         return HTTPException(status_code=409, detail="面试已结束，请查看评估报告")
+    if isinstance(e, AnalysisInProgress):
+        return HTTPException(status_code=409, detail="简历 AI 分析仍在进行中，请稍候几秒再开始面试")
     return HTTPException(status_code=500, detail=str(e))
 
 
@@ -25,7 +28,7 @@ def _map_orchestrator_error(e: Exception) -> HTTPException:
 def start_interview(session_id: str):
     try:
         r = ORCHESTRATOR.start(session_id)
-    except (SessionNotFound, InterviewFinished) as e:
+    except (SessionNotFound, InterviewFinished, AnalysisInProgress) as e:
         raise _map_orchestrator_error(e) from e
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -36,7 +39,7 @@ def start_interview(session_id: str):
 def send_message(session_id: str, body: MessageRequest):
     try:
         r = ORCHESTRATOR.handle_message(session_id, body.message)
-    except (SessionNotFound, InterviewFinished) as e:
+    except (SessionNotFound, InterviewFinished, AnalysisInProgress) as e:
         raise _map_orchestrator_error(e) from e
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(e)) from e

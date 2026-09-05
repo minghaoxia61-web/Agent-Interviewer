@@ -18,6 +18,8 @@ class Session:
     resume: Dict[str, Any]
     weaknesses: List[Dict[str, Any]]
     diagnosis: Dict[str, Any] = field(default_factory=dict)
+    analysis_status: str = "done"  # processing / done / failed
+    analysis_error: str = ""
     messages: List[Dict[str, Any]] = field(default_factory=list)
     stage: str = "intro"
     focus_idx: int = 0
@@ -42,7 +44,8 @@ class Session:
 class SessionStore:
     # 会话快照里持久化的字段（graph 为运行时对象，不落盘）
     _PERSISTED = ("id", "created_at", "target_position", "resume", "weaknesses",
-                  "diagnosis", "messages", "stage", "focus_idx", "probe_depth",
+                  "diagnosis", "analysis_status", "analysis_error", "messages",
+                  "stage", "focus_idx", "probe_depth",
                   "current_question", "drill_rounds", "drill_asked", "stress_rounds",
                   "vagueness_log", "finished", "report_md", "scores", "overall",
                   "summary", "trace_file")
@@ -90,7 +93,8 @@ class SessionStore:
 
     def create(self, target_position: str, resume: Dict[str, Any],
                weaknesses: List[Dict[str, Any]],
-               diagnosis: Optional[Dict[str, Any]] = None) -> Session:
+               diagnosis: Optional[Dict[str, Any]] = None,
+               analysis_status: str = "done") -> Session:
         sid = uuid.uuid4().hex[:12]
         sess = Session(
             id=sid,
@@ -99,6 +103,7 @@ class SessionStore:
             resume=resume,
             weaknesses=weaknesses,
             diagnosis=diagnosis or {},
+            analysis_status=analysis_status,
         )
         with self._lock:
             self._sessions[sid] = sess

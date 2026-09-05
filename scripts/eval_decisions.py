@@ -13,6 +13,7 @@
 import json
 import os
 import sys
+import time
 import tempfile
 from pathlib import Path
 
@@ -70,6 +71,12 @@ def eval_trajectory(lines: list) -> None:
     sid = client.post("/api/resume/upload",
                       files={"file": ("s.md", sample.read_bytes(), "text/markdown")},
                       data={"target_position": "后端开发工程师"}).json()["session_id"]
+    # 等待后台分析（挖掘/诊断并行）完成后再开始面试
+    for _ in range(80):
+        a = client.get(f"/api/resume/{sid}/analysis").json()
+        if a["analysis_status"] == "done":
+            break
+        time.sleep(0.25)
     client.post(f"/api/interview/{sid}/start")
 
     VAGUE = "就大概做了下，效果还行"

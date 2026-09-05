@@ -1,4 +1,11 @@
-"""简历上传与解析路由。"""
+"""简历上传与解析路由。
+
+上传接口只做同步的文本提取 + LLM 结构化解析（单次调用，响应快），
+漏洞挖掘与体检诊断转入后台线程并行执行——避免网关（Cloudflare/魔搭等）
+对长请求的超时截断。前端通过 GET /{session_id}/analysis 轮询结果。
+"""
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -42,36 +49,64 @@ async def upload_resume(file: UploadFile = File(...),
         raise HTTPException(status_code=422, detail=str(e)) from e
 
     resume_dict = parsed.model_dump()
-
-    # 漏洞挖掘：LLM 失败时自动降级为确定性启发式
-    try:
-        raw_weaknesses = llm.dig_weaknesses(resume_dict)[:3]
-        weaknesses = [Weakness(**w).model_dump() for w in raw_weaknesses]
-        dig_mode = "llm" if not llm.mock else "heuristic"
-    except Exception:  # noqa: BLE001
-        weaknesses = mock_llm.dig_weaknesses(resume_dict)[:3]
-        dig_mode = "heuristic"
-
-    # 简历体检诊断（LLM 失败自动回落启发式，见 llm.diagnose_resume）
-    diagnosis = llm.diagnose_resume(resume_dict, target_position.strip())
-
-    sess = STORE.create(target_position=target_position.strip(),
-                        resume=resume_dict, weaknesses=weaknesses,
-                        diagnosis=diagnosis)
+    sess = STORE.create(target_position=target_position.strip(), resume=resume_dict,
+                        weaknesses=[], analysis_status="processing")
     # 按会话归档原始简历
     kept = settings.uploads_dir / f"{sess.id}{suffix}"
     kept.write_bytes(content)
 
+    # 漏洞挖掘 ∥ 体检诊断：后台并行执行，完成后回写会话
+    def _dig() -> list:
+        try:
+            raw = llm.dig_weaknesses(resume_dict)[:3]
+            return [Weakness(**w).model_dump() for w in raw]
+        except Exception:  # noqa: BLE001 - LLM 失败自动降级确定性启发式
+            return mock_llm.dig_weaknesses(resume_dict)[:3]
+
+    def _diagnose() -> dict:
+        return llm.diagnose_resume(resume_dict, target_position.strip())
+
+    def _analyze() -> None:
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f_dig, f_diag = pool.submit(_dig), pool.submit(_diagnose)
+                weaknesses, diagnosis = f_dig.result(), f_diag.result()
+            sess.weaknesses = weaknesses
+            sess.diagnosis = diagnosis
+            sess.analysis_status = "done"
+        except Exception as e:  # noqa: BLE001
+            sess.analysis_status = "failed"
+            sess.analysis_error = str(e)[:200]
+        STORE.save(sess)
+
+    threading.Thread(target=_analyze, name=f"analyze-{sess.id}", daemon=True).start()
+
     return {
         "session_id": sess.id,
         "resume": resume_dict,
-        "weaknesses": weaknesses,
-        "diagnosis": diagnosis,
+        "weaknesses": [],
+        "diagnosis": None,
+        "analysis_status": "processing",
         "target_position": sess.target_position,
         "parse_mode": mode,
-        "dig_mode": dig_mode,
         "llm_mode": "mock" if llm.mock else "real",
         "filename": file.filename,
+    }
+
+
+@router.get("/{session_id}/analysis")
+def get_analysis(session_id: str):
+    """轮询简历分析结果（processing / done / failed）。"""
+    sess = STORE.get(session_id)
+    if sess is None:
+        raise HTTPException(status_code=404, detail="会话不存在，请先上传简历")
+    return {
+        "session_id": sess.id,
+        "analysis_status": sess.analysis_status,
+        "analysis_error": sess.analysis_error,
+        "weaknesses": sess.weaknesses if sess.analysis_status == "done" else [],
+        "diagnosis": sess.diagnosis if sess.analysis_status == "done" else None,
+        "target_position": sess.target_position,
     }
 
 

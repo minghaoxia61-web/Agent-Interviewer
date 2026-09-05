@@ -1,18 +1,16 @@
-"""API 全链路测试：上传 → 面试 → 报告，投递看板 CRUD，鉴权护栏。"""
+"""API 全链路测试：上传 → 异步分析 → 面试 → 报告，投递看板 CRUD，鉴权护栏。"""
+import time
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
 
-SAMPLE = None  # 延迟加载
-
 
 def _sample_bytes() -> bytes:
-    global SAMPLE
-    if SAMPLE is None:
-        SAMPLE = (Path_ := __import__("pathlib").Path(__file__).resolve().parent.parent
-                  / "data" / "samples" / "sample_resume.md").read_bytes()
-    return SAMPLE
+    return (Path(__file__).resolve().parent.parent / "data" / "samples"
+            / "sample_resume.md").read_bytes()
 
 
 @pytest.fixture(scope="module")
@@ -27,7 +25,15 @@ def _upload(client, position="后端开发工程师"):
                     files={"file": ("sample_resume.md", _sample_bytes(), "text/markdown")},
                     data={"target_position": position})
     assert r.status_code == 200
-    return r.json()
+    data = r.json()
+    # 挖掘/诊断在后台线程并行执行，轮询直到完成（Mock 模式毫秒级）
+    for _ in range(80):
+        a = client.get(f"/api/resume/{data['session_id']}/analysis").json()
+        if a["analysis_status"] == "done":
+            data.update(weaknesses=a["weaknesses"], diagnosis=a["diagnosis"])
+            return data
+        time.sleep(0.25)
+    raise AssertionError("简历分析超时未完成")
 
 
 def test_health(client):
@@ -36,12 +42,30 @@ def test_health(client):
     assert r.json()["status"] == "ok"
 
 
-def test_upload_returns_diagnosis_and_weaknesses(client):
+def test_upload_returns_analysis_state_then_diagnosis(client):
     data = _upload(client)
     assert data["session_id"]
     assert len(data["weaknesses"]) >= 1
     assert data["diagnosis"]["overall"] >= 0
     assert set(data["diagnosis"]["scores"]) >= {"quantified", "clarity"}
+
+
+def test_analysis_endpoint_states(client):
+    r = client.post("/api/resume/upload",
+                    files={"file": ("sample_resume.md", _sample_bytes(), "text/markdown")},
+                    data={"target_position": "后端开发工程师"})
+    sid = r.json()["session_id"]
+    # 上传即刻返回，分析异步执行：轮询到完成
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        a = client.get(f"/api/resume/{sid}/analysis").json()
+        if a["analysis_status"] == "done":
+            break
+        time.sleep(0.25)
+    assert a["analysis_status"] == "done"
+    assert a["weaknesses"]
+    # 完成后开始面试不应再报 409
+    assert client.post(f"/api/interview/{sid}/start").status_code == 200
 
 
 def test_interview_flow_vague_triggers_followup(client):
