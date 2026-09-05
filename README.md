@@ -1,5 +1,11 @@
 # RAI · Resume-Agent-Insight 就业工作台
 
+[![CI](https://github.com/minghaoxia61-web/Agent-Interviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/minghaoxia61-web/Agent-Interviewer/actions/workflows/ci.yml)
+[![Deploy Pages](https://github.com/minghaoxia61-web/Agent-Interviewer/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/minghaoxia61-web/Agent-Interviewer/actions/workflows/deploy-pages.yml)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
+![Tests](https://img.shields.io/badge/tests-49%20passed-brightgreen)
+
 > AI 驱动的求职训练场：简历体检 → 漏洞挖掘 → 动态追问模拟面试 → 可证伪评估报告 → 成长档案。
 
 RAI 是一个帮助求职者拿到 offer 的工作台，模拟面试是其中核心的一环，而不是全部。
@@ -36,8 +42,11 @@ uvicorn app.main:app --port 8000
 # 2) 前端开发模式（可选，热更新）
 cd frontend && npm install && npm run dev            # http://localhost:5173
 
-# 3) 端到端冒烟测试
-.venv/Scripts/python.exe scripts/smoke_test.py
+# 3) 测试与评测
+.venv/Scripts/pip install -r requirements-dev.txt
+.venv/Scripts/python.exe -m pytest tests -q          # 49 项单元/接口/回归测试
+.venv/Scripts/python.exe scripts/eval_decisions.py   # 追问决策评估（黄金样本 + 轨迹模拟）
+.venv/Scripts/python.exe scripts/eval_rag.py         # RAG 多引擎 recall@5 / MRR 对比
 ```
 
 ### 接入真实 LLM
@@ -50,6 +59,37 @@ LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 智谱 GLM
 LLM_MODEL=glm-4-flash
 # DeepSeek: LLM_BASE_URL=https://api.deepseek.com/v1  LLM_MODEL=deepseek-chat
 ```
+
+## 质量与评估（可复现）
+
+**测试**：`pytest tests -q` 共 49 项——追问规则黄金样本回归、API 全链路（上传→面试→报告）、
+投递看板 CRUD、鉴权护栏（401/令牌）、检索引擎命中与排除逻辑。CI（`.github/workflows/ci.yml`）在每次 push 时并行跑 pytest 与前端构建。
+
+**追问决策评估**（`scripts/eval_decisions.py`，报告落盘 `data/eval/decision_report.md`）：
+
+- 规则回归：30 条黄金回答样本（含糊/过短/缺量化/缺因果/扎实），`assess_answer` 的决策与触发原因 **100% 符合标注**；
+- 轨迹模拟：脚本化候选人跑完整状态机 19 轮，验证行为契约——含糊回答必触发追问（共 9 次 = 3 疑点 × 3 层封顶）、
+  扎实回答推进、阶段按 `项目深挖 → 技术基础 → 压力测试` 按时流转。换 LLM 模型或调规则后重跑即为回归测试。
+
+**RAG 检索评测**（`scripts/eval_rag.py`，40 条标注查询，报告落盘 `data/eval/rag_report.md`）：
+
+| 引擎 | recall@5 | MRR | 平均耗时 |
+| --- | --- | --- | --- |
+| ngram（字符 n-gram Jaccard） | 1.00 | 1.00 | 1.59ms |
+| bm25（纯 Python Okapi，默认） | 1.00 | 1.00 | 0.39ms |
+| chroma（向量） | 待联网环境验证 | — | — |
+
+> 两种离线引擎在标注查询集上均满分，BM25 快 4 倍，故默认 `RETRIEVER_MODE=auto` 离线时落 BM25。
+> Chroma 引擎已实现（含初始化硬超时回落与 embedding 预热），配好 embedding 网络后重跑脚本即可补齐对比数据。
+
+## 工程取舍
+
+- **会话持久化：自研磁盘快照 vs LangGraph SqliteSaver checkpointer。** 选择快照：应用态（简历/诊断/报告）与图态（阶段/追问深度）
+  本就一体落盘，人类可读、零额外依赖、重启恢复已验证；checkpointer 的增量优势主要在多线程 resume 与时间旅行调试，列入 Roadmap。
+- **追问判定：确定性规则 vs LLM 判断。** 追问/推进由 4 条规则决定并随 Trace 落盘——可证伪、可单测、可回归（见上），LLM 只负责话术生成。
+- **Chroma 自动模式的可用性工程**：初始化带 20s 硬超时 + 进程内失败记忆（离线不再反复阻塞启动）+ embedding 预热
+  （把"空集合时首次查询才崩"的晚失败提前到 init 阶段暴露）。
+- **安全护栏**：`ACCESS_TOKEN` 非空时所有 API/WS 需令牌（前端自动弹框携带），每 IP 每日限额默认 300 次——公网部署时保护 LLM 费用。
 
 ## 前端设计（Persona 3 Reload 风格）
 
@@ -103,54 +143,76 @@ flowchart LR
 
 ```
 app/
-├── api/            # 路由：resume / interview / report / workbench (+ WebSocket)
+├── api/            # 路由：resume / interview / report / workbench / applications (+ WebSocket)
 ├── core/
 │   ├── config.py   # 全局配置（.env 覆盖）
 │   ├── prompts.py  # 全部 LLM Prompt
 │   ├── rules.py    # 确定性规则（追问判定、兜底题库、压力场景）
+│   ├── security.py # 访问令牌 + 每日限额护栏
 │   └── agents/graph.py  # LangGraph 状态机
 ├── schemas/        # Pydantic 模型
 ├── services/
-│   ├── llm.py          # LLM 客户端（真实/Mock 双模式）
+│   ├── llm.py          # LLM 客户端（真实/Mock 双模式 + JSON 解析重试）
 │   ├── diagnosis.py    # 简历体检（启发式评分，可解释）
+│   ├── jd_matcher.py   # JD 对比诊断
 │   ├── mock_llm.py     # 确定性 Mock 实现
 │   ├── resume_parser.py
 │   ├── reporter.py     # 报告生成
-│   ├── orchestrator.py # 编排层
-│   └── rag/retriever.py# 面经检索（可升级 ChromaDB）
-└── storage/session_store.py  # 会话 + Trace + 磁盘快照（重启可恢复）
+│   ├── orchestrator.py # 编排层（会话锁串行化）
+│   └── rag/retriever.py# 检索工厂：ngram / bm25 / chroma（auto 自动回落）
+└── storage/
+    ├── session_store.py      # 会话 + Trace + 磁盘快照（重启可恢复）
+    └── application_store.py  # 投递看板存储
 data/
 ├── knowledge/      # 大厂面经知识库（43 题）
+├── eval/           # 黄金样本、检索标注查询、评测报告
 ├── samples/        # 示例简历（含 PDF 生成脚本）
-├── sessions/       # 会话快照
-├── traces/         # 逐轮轨迹 JSONL
-├── reports/        # 评估报告
-└── uploads/        # 简历原件
-frontend/           # React + Vite + Tailwind v4 + Lucide · P3R(女神异闻录3)风格工作台
-scripts/            # 冒烟测试 / 示例 PDF 生成 / headless 视觉走查截图(shot.ps1)
+├── sessions/ traces/ reports/ uploads/ chroma/
+frontend/           # React + Vite + Tailwind v4 + Lucide · P3R 风格工作台
+tests/              # pytest：规则回归 / API 全链路 / 检索 / 诊断 / 鉴权
+scripts/            # 评测脚本 / 冒烟测试 / 示例 PDF / headless 截图(shot.ps1)
+.github/workflows/  # ci.yml（pytest+构建）· deploy-pages.yml（前端发布）
 ```
 
 ## Roadmap
 
 - [x] 简历上传 / 解析 / 体检诊断 / 漏洞挖掘
 - [x] LangGraph 动态追问状态机（项目深挖 → 技术基础 → 压力测试）
-- [x] 大厂面经 RAG 检索出题 + 题库浏览
+- [x] 大厂面经 RAG 检索出题（ngram / bm25 / chroma 可切换）+ 题库浏览
 - [x] LLM-as-a-Judge 评估报告 + 五维雷达 + 成长趋势
 - [x] 会话持久化（重启恢复）、断点续面
 - [x] WebSocket 流式面试（前端已接入，REST 自动兜底）
 - [x] JD 对比诊断（关键词覆盖率 + 差距补齐建议）
 - [x] 求职投递看板（拖拽换列 + 状态时间线 + 统计）
-- [x] P3R(女神异闻录3)风格前端重构 + 切屏转场 + 键盘导航(↑↓/ENTER/ESC)
+- [x] P3R 风格前端重构 + 切屏转场 + 键盘导航(↑↓/ENTER/ESC)
+- [x] pytest 测试套件（49 项）+ CI + 追问决策评估集（30 样本 100%）
+- [x] RAG 检索评测（recall@5 / MRR 多引擎对比）
+- [x] 访问令牌 + 每日限额护栏（前端令牌弹窗）
+- [ ] 后端部署到公网（Railway/云服务器）并接通 Pages 前端
 - [ ] 语音交互（TTS/STT）、多轮会话导出
 - [ ] JD 匹配结果持久化与历史对比、岗位订阅聚合
-- [ ] ChromaDB 向量检索替换 n-gram
+- [ ] LangGraph SqliteSaver checkpointer（多线程 resume / 时间旅行调试）
 
-## 部署
+## 部署（公网）
+
+### 方式一：Railway / Render（推荐，自动识别 Dockerfile）
+
+1. 仓库推送到 GitHub 后，在 Railway 新建项目 → **Deploy from GitHub repo**（自动用根目录 Dockerfile 构建）；
+2. 在服务 Variables 里配置：
+   - `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`（真实 LLM；留空则 Mock 模式）
+   - `ACCESS_TOKEN=<自定义一个随机令牌>`（**必设**，否则接口会被任意调用刷爆额度）
+   - `RATE_LIMIT_DAILY=300`（按需调整）
+3. 生成公网域名（Settings → Networking → Generate Domain）；
+4. 回到 GitHub 仓库 **Settings → Secrets and variables → Actions → Variables** 新建
+   `VITE_API_BASE=https://<后端域名>`，push 任意改动触发 Pages 重部署；
+5. 打开 `https://minghaoxia61-web.github.io/Agent-Interviewer/`，首次请求会弹出令牌输入框，输入第 2 步的令牌即可全功能使用（含 WebSocket 流式）。
+
+### 方式二：云服务器 docker compose
 
 ```bash
-cp .env.example .env   # 按需填 Key，不填则 Mock 模式
+cp .env.example .env   # 填 Key 与 ACCESS_TOKEN
 docker compose up --build -d
-# 单容器：前端构建产物由 FastAPI 托管，访问 http://localhost:8000
+# 单容器：前端构建产物由 FastAPI 托管，访问 http://<服务器IP>:8000
 ```
 
 ### GitHub Pages（仅前端 UI 演示）
