@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   diagnosis TEXT,
   analysis_status TEXT DEFAULT 'done',
   analysis_error TEXT DEFAULT '',
+  jd_matches TEXT,
   messages TEXT,
   stage TEXT DEFAULT 'intro',
   focus_idx INTEGER DEFAULT 0,
@@ -60,6 +61,21 @@ CREATE TABLE IF NOT EXISTS applications (
   timeline TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_applications_owner ON applications(owner);
+CREATE TABLE IF NOT EXISTS llm_cache (
+  key TEXT PRIMARY KEY,
+  kind TEXT,
+  model TEXT,
+  response TEXT,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS practice (
+  id TEXT PRIMARY KEY,
+  owner TEXT,
+  created_at TEXT,
+  finished INTEGER DEFAULT 0,
+  items TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_practice_owner ON practice(owner);
 """
 
 
@@ -71,6 +87,10 @@ def get_conn() -> sqlite3.Connection:
             _conn = sqlite3.connect(str(settings.db_path), check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(_SCHEMA)
+            # 旧库补列：CREATE IF NOT EXISTS 不会给已存在的表加新列
+            _cols = {r[1] for r in _conn.execute("PRAGMA table_info(sessions)")}
+            if "jd_matches" not in _cols:
+                _conn.execute("ALTER TABLE sessions ADD COLUMN jd_matches TEXT")
             _conn.commit()
         return _conn
 

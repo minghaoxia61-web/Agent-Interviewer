@@ -6,6 +6,7 @@
 """
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -126,4 +127,17 @@ def jd_match(session_id: str, body: JdMatchRequest, request: Request):
     ensure_owner(sess.owner, request)
     if not body.jd.strip():
         raise HTTPException(status_code=422, detail="JD 文本不能为空")
-    return ORCHESTRATOR.llm.jd_match(sess.resume, body.jd, sess.target_position)
+    result = ORCHESTRATOR.llm.jd_match(sess.resume, body.jd, sess.target_position)
+    # 持久化到会话，支持同一份简历对不同 JD 的历史对比
+    entry = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "jd_excerpt": body.jd.strip()[:120],
+        "match_score": result["match_score"],
+        "matched_count": len(result["matched"]),
+        "missing_count": len(result["missing"]),
+        "summary": result["summary"],
+        "mode": result["mode"],
+    }
+    sess.jd_matches = (sess.jd_matches or []) + [entry]
+    STORE.save(sess)
+    return {**result, "history": sess.jd_matches}

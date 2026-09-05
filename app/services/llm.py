@@ -3,16 +3,20 @@
 - 未配置 LLM_API_KEY 时自动进入 Mock 模式（确定性输出，全流程可跑通）；
 - 高层方法（parse_resume / dig_weaknesses / 面试话术 / judge）对上层屏蔽模式差异；
 - emit 回调用于 WebSocket 流式输出；
-- 所有真实调用计入观测统计（次数/耗时/字符量），供工作台面板展示。
+- 所有真实调用计入观测统计（次数/耗时/字符量），供工作台面板展示；
+- 分析类调用（解析/挖掘/诊断/JD/Judge）走内容寻址缓存——同一份输入不重复花钱。
 """
+import hashlib
 import json
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.core import prompts
 from app.core.config import settings
 from app.services import mock_llm
+from app.storage import db
 
 
 class LLMError(RuntimeError):
@@ -32,9 +36,33 @@ class LLMService:
                 timeout=settings.llm_timeout,
             )
         # 观测统计：真实调用的次数/耗时/字符量（Mock 调用不计入）
-        self.stats = {"calls": 0, "errors": 0, "retries": 0,
+        self.stats = {"calls": 0, "errors": 0, "retries": 0, "cache_hits": 0,
                       "total_ms": 0.0, "chars_in": 0, "chars_out": 0}
         self.recent_calls: List[Dict[str, Any]] = []
+
+    def _cached_json(self, kind: str, system: str, user: str,
+                     temperature: Optional[float] = None) -> Tuple[Any, bool]:
+        """内容寻址缓存：同一 (kind, model, 输入) 的分析类调用直接返回上次结果。
+
+        返回 (data, cache_hit)。面试对话类调用不走缓存（每次都应新鲜）。
+        """
+        if not settings.llm_cache:
+            return self.chat_json(system, user, temperature=temperature), False
+        key = hashlib.sha256(
+            f"{kind}|{settings.llm_model}|{system}|{user}".encode("utf-8")).hexdigest()
+        rows = db.query("SELECT response FROM llm_cache WHERE key = ?", (key,))
+        if rows:
+            self.stats["cache_hits"] += 1
+            data = db.loads(rows[0]["response"])
+            if data is not None:
+                return data, True
+        data = self.chat_json(system, user, temperature=temperature)
+        db.execute(
+            "INSERT OR REPLACE INTO llm_cache (key, kind, model, response, created_at) "
+            "VALUES (?,?,?,?,?)",
+            (key, kind, settings.llm_model, db.dumps(data),
+             datetime.now().isoformat(timespec="seconds")))
+        return data, False
 
     def _record(self, kind: str, t0: float, chars_in: int, chars_out: int) -> None:
         ms = round((time.perf_counter() - t0) * 1000, 1)
@@ -121,7 +149,7 @@ class LLMService:
         user = prompts.RESUME_PARSE_USER_TMPL.format(
             target_position=target_position or "未指定", resume_text=text[:8000]
         )
-        data = self.chat_json(prompts.RESUME_PARSE_SYSTEM, user, temperature=0.1)
+        data, _ = self._cached_json("parse", prompts.RESUME_PARSE_SYSTEM, user, temperature=0.1)
         data.setdefault("target_position", target_position)
         data.setdefault("raw_text_chars", len(text))
         return data
@@ -155,7 +183,7 @@ class LLMService:
         reminder = ""
         last_err: Exception = ValueError("dig 输出为空")
         for _ in range(2):
-            data = self.chat_json(prompts.RESUME_DIG_SYSTEM, user + reminder, temperature=0.3)
+            data, _ = self._cached_json("dig", prompts.RESUME_DIG_SYSTEM, user + reminder, temperature=0.3)
             cleaned = self._clean_dig(data)
             if cleaned:
                 return cleaned
@@ -174,7 +202,7 @@ class LLMService:
                     target_position=target_position or "未指定",
                     resume_json=json.dumps(resume, ensure_ascii=False)[:6000],
                 )
-                data = self.chat_json(prompts.RESUME_DIAGNOSE_SYSTEM, user, temperature=0.2)
+                data, _ = self._cached_json("diagnose", prompts.RESUME_DIAGNOSE_SYSTEM, user, temperature=0.2)
                 scores = data.get("scores", {})
                 from app.services.diagnosis import DIM_LABELS
 
@@ -273,7 +301,7 @@ class LLMService:
                     jd_text=(jd_text or "")[:6000],
                     resume_json=json.dumps(resume, ensure_ascii=False)[:5000],
                 )
-                data = self.chat_json(prompts.JD_MATCH_SYSTEM, user, temperature=0.2)
+                data, _ = self._cached_json("jd", prompts.JD_MATCH_SYSTEM, user, temperature=0.2)
                 matched = [str(k) for k in data.get("matched", [])][:25]
                 missing = [str(k) for k in data.get("missing", [])][:25]
                 return {
@@ -294,6 +322,36 @@ class LLMService:
         return result
 
     # ------------------------------------------------------------------
+    # 题库练习教练
+    # ------------------------------------------------------------------
+    def practice_eval(self, question: str, answer: str) -> Dict[str, Any]:
+        if self.mock:
+            return mock_llm.practice_eval(question, answer)
+        user = prompts.PRACTICE_EVAL_USER_TMPL.format(
+            question=question[:500], answer=answer[:3000])
+        try:
+            data, _ = self._cached_json("practice", prompts.PRACTICE_EVAL_SYSTEM, user,
+                                        temperature=0.2)
+
+            def clamp(v) -> float:
+                try:
+                    return round(max(0.0, min(10.0, float(v))), 1)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            return {
+                "score": clamp(data.get("score", 0)),
+                "strengths": [str(x) for x in data.get("strengths", [])][:3],
+                "gaps": [str(x) for x in data.get("gaps", [])][:4],
+                "reference": [str(x) for x in data.get("reference", [])][:5],
+                "mode": "llm",
+            }
+        except Exception:  # noqa: BLE001 - LLM 失败回落确定性批改
+            result = mock_llm.practice_eval(question, answer)
+            result["mode"] = "heuristic"
+            return result
+
+    # ------------------------------------------------------------------
     # LLM-as-a-Judge
     # ------------------------------------------------------------------
     def judge(self, transcript: List[Dict[str, Any]], stats: Dict[str, Any]) -> Dict[str, Any]:
@@ -305,7 +363,7 @@ class LLMService:
             stress_rounds=stats.get("stress_rounds", 0),
             transcript=json.dumps(transcript, ensure_ascii=False)[:12000],
         )
-        data = self.chat_json(prompts.JUDGE_SYSTEM, user, temperature=0.2)
+        data, _ = self._cached_json("judge", prompts.JUDGE_SYSTEM, user, temperature=0.2)
         if not isinstance(data, dict) or "scores" not in data:
             raise ValueError("Judge 输出格式异常")
         return data

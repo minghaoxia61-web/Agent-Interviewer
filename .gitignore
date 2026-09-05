@@ -32,3 +32,6 @@ data/rai.db
 data/*.db-*
 data/*.json.imported
 *.log
+m1.json
+m2.json
+m3.json

@@ -39,6 +39,18 @@ class InterviewOrchestrator:
                                          chroma_dir=settings.data_dir / "chroma")
         self.reporter = ReportGenerator(self.llm)
         self.store = STORE
+        # LangGraph SqliteSaver：图状态逐 checkpoint 落盘（进程重启后可从断点恢复）
+        self.checkpointer = None
+        if settings.use_checkpointer:
+            try:
+                import sqlite3 as _sqlite3
+
+                from langgraph.checkpoint.sqlite import SqliteSaver
+
+                self.checkpointer = SqliteSaver(_sqlite3.connect(
+                    str(settings.data_dir / "checkpoints.db"), check_same_thread=False))
+            except Exception as e:  # noqa: BLE001 - 未安装/版本不配时优雅降级
+                print(f"[RAI] LangGraph checkpointer 不可用，降级为无检查点模式：{e}")
 
     # ------------------------------------------------------------------
     def _require(self, sid: str) -> Session:
@@ -51,13 +63,20 @@ class InterviewOrchestrator:
         if sess.graph is None:
             deps = SimpleNamespace(llm=self.llm, retriever=self.retriever,
                                    store=self.store, reporter=self.reporter, settings=settings)
-            sess.graph = build_graph(deps)
+            graph = build_graph(deps)
+            # 持有 checkpointer 时才在此处编译；否则编译出无检查点版本
+            sess.graph = (graph.compile(checkpointer=self.checkpointer)
+                          if self.checkpointer else graph.compile())
         return sess.graph
 
-    def _invoke(self, sess: Session, state: Dict[str, Any]) -> Dict[str, Any]:
+    def _invoke(self, sess: Session, state: Dict[str, Any],
+                emit: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
         app = self._get_graph(sess)
+        # emit 通过 configurable 传递（callable 不可被 checkpointer 序列化，不能进 state）
+        config = {"recursion_limit": 60,
+                  "configurable": {"thread_id": f"interview-{sess.id}", "emit": emit}}
         try:
-            return app.invoke(state, config={"recursion_limit": 60})
+            return app.invoke(state, config=config)
         except Exception as e:  # noqa: BLE001 - 图内异常统一上抛给路由层
             raise RuntimeError(f"面试状态机执行失败: {e}") from e
 
@@ -135,7 +154,7 @@ class InterviewOrchestrator:
                                            "event": "user_message", "user": user_text.strip(),
                                            "stage": stage_before})
             result = self._invoke(sess, {"session_id": sid, "stage": sess.stage,
-                                         "last_user_msg": user_text.strip(), "emit": emit})
+                                         "last_user_msg": user_text.strip()}, emit=emit)
             self._persist(sess, result)
             return self._turn_response(sess, result, stage_before)
 

@@ -29,6 +29,7 @@ class Session:
     analysis_status: str = "done"  # processing / done / failed
     analysis_error: str = ""
     owner: str = "anonymous"  # 访客标识，用于多访客数据隔离
+    jd_matches: List[Dict[str, Any]] = field(default_factory=list)
     messages: List[Dict[str, Any]] = field(default_factory=list)
     stage: str = "intro"
     focus_idx: int = 0
@@ -53,9 +54,9 @@ class Session:
 class SessionStore:
     # SQLite 列映射：JSON 列整体读写，其余为标量列
     _JSON_COLS = ("resume", "weaknesses", "diagnosis", "messages",
-                  "drill_asked", "vagueness_log", "scores")
+                  "drill_asked", "vagueness_log", "scores", "jd_matches")
     _COLS = ("id", "created_at", "target_position", "owner", "resume", "weaknesses",
-             "diagnosis", "analysis_status", "analysis_error", "messages", "stage",
+             "diagnosis", "analysis_status", "analysis_error", "jd_matches", "messages", "stage",
              "focus_idx", "probe_depth", "current_question", "drill_rounds",
              "drill_asked", "stress_rounds", "vagueness_log", "finished",
              "report_md", "scores", "overall", "summary", "trace_file")
@@ -97,6 +98,7 @@ class SessionStore:
             analysis_status=d.get("analysis_status") or "done",
             analysis_error=d.get("analysis_error") or "",
             owner=d.get("owner") or "anonymous",
+            jd_matches=d.get("jd_matches") or [],
             messages=d.get("messages") or [],
             stage=d.get("stage") or "intro",
             focus_idx=d.get("focus_idx") or 0,

@@ -151,4 +151,32 @@ export async function getAnalysis(sessionId) {
   return handle(res)
 }
 
+export async function startPractice(category, company, count = 5) {
+  const res = await fetch(A + '/api/practice/start', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ category, company, count }),
+  })
+  return handle(res)
+}
+
+export async function submitPracticeAnswer(pid, answer) {
+  const res = await fetch(A + `/api/practice/${pid}/answer`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ answer }),
+  })
+  return handle(res)
+}
+
+export async function getPractice(pid) {
+  const res = await fetch(A + `/api/practice/${pid}`, { headers: authHeaders() })
+  return handle(res)
+}
+
+export async function getPracticeHistory() {
+  const res = await fetch(A + '/api/practice/history', { headers: authHeaders() })
+  return handle(res)
+}
+
 export { wsUrl }

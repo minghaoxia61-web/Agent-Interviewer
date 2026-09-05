@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  Briefcase, Columns3, FileSearch, LayoutDashboard, Library, Swords, TrendingUp,
+  Briefcase, Columns3, Dumbbell, FileSearch, LayoutDashboard, Library, Swords, TrendingUp,
 } from 'lucide-react'
 import { getReport, getReview, getSessionState, setApiToken } from './api.js'
 import Dashboard from './components/Dashboard.jsx'
 import DiagnosisScreen from './components/DiagnosisScreen.jsx'
 import ChatScreen from './components/ChatScreen.jsx'
 import QuestionBank from './components/QuestionBank.jsx'
+import PracticeView from './components/PracticeView.jsx'
 import Board from './components/Board.jsx'
 import Archive from './components/Archive.jsx'
 import ReportScreen from './components/ReportScreen.jsx'
@@ -19,8 +20,9 @@ const NAV = [
   { key: 'diagnosis', num: '02', label: '简历诊断', icon: FileSearch },
   { key: 'interview', num: '03', label: '模拟面试', icon: Swords },
   { key: 'questions', num: '04', label: '真题题库', icon: Library },
-  { key: 'board', num: '05', label: '投递看板', icon: Columns3 },
-  { key: 'archive', num: '06', label: '成长档案', icon: TrendingUp },
+  { key: 'practice', num: '05', label: '刷题练习', icon: Dumbbell },
+  { key: 'board', num: '06', label: '投递看板', icon: Columns3 },
+  { key: 'archive', num: '07', label: '成长档案', icon: TrendingUp },
 ]
 
 function Clock() {
@@ -190,6 +192,7 @@ export default function App() {
         />
       ),
     questions: <QuestionBank />,
+    practice: <PracticeView />,
     board: <Board />,
     archive: <Archive onView={openReport} onReview={openReview} onResume={resumeSession} go={go} />,
     report: (

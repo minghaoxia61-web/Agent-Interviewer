@@ -204,6 +204,21 @@ def stress_question(quote: str, scenario: str) -> str:
     )
 
 
+def practice_eval(question: str, answer: str) -> Dict[str, Any]:
+    """Mock 教练批改：确定性规则打分（真实模式由 LLM 生成参考要点）。"""
+    from app.core.rules import assess_answer
+
+    solid, reasons = assess_answer(answer)
+    score = 7.5 if solid else max(2.0, 6.0 - len(reasons) * 1.5)
+    return {
+        "score": round(min(10.0, max(0.0, score)), 1),
+        "strengths": ["回答了题目的核心方向"] if solid else [],
+        "gaps": [REASON_LABELS.get(r, r) for r in reasons] or ["缺少展开细节"],
+        "reference": ["（Mock 模式无参考答案要点，配置真实 LLM 后由模型生成）"],
+        "mode": "mock",
+    }
+
+
 # ---------------------------------------------------------------------------
 # 评估（统计规则，可解释）
 # ---------------------------------------------------------------------------

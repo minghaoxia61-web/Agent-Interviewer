@@ -28,8 +28,14 @@ class Settings(BaseSettings):
     access_token: str = ""           # 非空时所有 API 需携带 X-API-Token（或 ?token=）
     rate_limit_daily: int = 300      # 每客户端 IP 每日 API 调用上限
 
-    # 检索后端：auto（优先 Chroma，未安装则 BM25）/ bm25 / ngram
+    # RAG 引擎：auto（优先 Chroma，未安装则 BM25）/ bm25 / ngram / chroma
     retriever_mode: str = "auto"
+
+    # LLM 结果缓存：同一 (调用类型+模型+输入) 的分析类调用命中缓存不重复计费
+    llm_cache: bool = True
+
+    # LangGraph SqliteSaver checkpointer（图状态断点落盘）
+    use_checkpointer: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

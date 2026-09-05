@@ -9,7 +9,9 @@
 - 跨阶段推进通过条件边在同一轮内链式完成，保证用户每次发言后都能拿到下一条问题；
 - 「追问 vs 推进」的每次决策及触发原因都随 Trace 落盘，可证伪。
 """
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Callable, Dict, List, Optional, TypedDict
+
+from langchain_core.runnables import RunnableConfig
 
 from langgraph.graph import END, START, StateGraph
 
@@ -26,11 +28,18 @@ STAGE_END = "end"
 SELF_INTRO = "__SELF_INTRO__"
 
 
+def _emit_from(config: Any) -> Optional[Callable[[str], None]]:
+    """emit 回调经 runnable config 传递（callable 不能进 checkpoint 序列化的 state）。"""
+    try:
+        return (config or {}).get("configurable", {}).get("emit")
+    except Exception:
+        return None
+
+
 class InterviewState(TypedDict, total=False):
     # 输入
     session_id: str
     last_user_msg: str
-    emit: Any                    # Optional[Callable[[str], None]]，WebSocket 流式回调
     # 阶段内流转的瞬态标记（仅单次 invoke 内存活，不落盘）
     drill_first: bool
     stress_first: bool
@@ -89,9 +98,9 @@ def build_graph(deps):
     # ------------------------------------------------------------------
     # 节点
     # ------------------------------------------------------------------
-    def intro_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    def intro_node(state: Dict[str, Any], config: RunnableConfig = None) -> Dict[str, Any]:
         sess = store.get(state["session_id"])
-        msg = llm.intro_message(sess.resume, sess.weaknesses, sess.target_position, emit=state.get("emit"))
+        msg = llm.intro_message(sess.resume, sess.weaknesses, sess.target_position, emit=_emit_from(config))
         return {
             "assistant_msg": msg,
             "stage": STAGE_PROBE,
@@ -102,9 +111,9 @@ def build_graph(deps):
             "reasons": [],
         }
 
-    def probe_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    def probe_node(state: Dict[str, Any], config: RunnableConfig = None) -> Dict[str, Any]:
         sess = store.get(state["session_id"])
-        emit = state.get("emit")
+        emit = _emit_from(config)
         answer = (state.get("last_user_msg") or "").strip()
         weaknesses = sess.weaknesses or []
 
@@ -143,9 +152,9 @@ def build_graph(deps):
                 "pending_ack": "先从第一道基础题开始。",
                 "decision": "advance_stage", "reasons": [] if solid else reasons}
 
-    def drill_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    def drill_node(state: Dict[str, Any], config: RunnableConfig = None) -> Dict[str, Any]:
         sess = store.get(state["session_id"])
-        emit = state.get("emit")
+        emit = _emit_from(config)
         answer = (state.get("last_user_msg") or "").strip()
 
         if state.get("drill_first"):
@@ -169,9 +178,9 @@ def build_graph(deps):
                 "current_question": q, "drill_rounds": sess.drill_rounds + 1,
                 "drill_asked": sess.drill_asked + [entry_id], "vagueness_log": log}
 
-    def stress_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    def stress_node(state: Dict[str, Any], config: RunnableConfig = None) -> Dict[str, Any]:
         sess = store.get(state["session_id"])
-        emit = state.get("emit")
+        emit = _emit_from(config)
         answer = (state.get("last_user_msg") or "").strip()
 
         if state.get("stress_first"):
@@ -247,4 +256,5 @@ def build_graph(deps):
     g.add_edge("evaluate", END)
     g.add_edge("noop_end", END)
 
-    return g.compile()
+    # 编译交由 orchestrator 完成（按需注入 SqliteSaver checkpointer）
+    return g

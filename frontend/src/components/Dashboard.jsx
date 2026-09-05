@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  ArrowRight, Award, BrainCircuit, FileSearch, Flame, Library,
+  ArrowRight, Award, BrainCircuit, Dumbbell, FileSearch, Flame, Library,
   PlayCircle, Swords, TrendingUp, Zap,
 } from 'lucide-react'
 import { getDashboard } from '../api.js'
@@ -10,6 +10,7 @@ const MODULES = [
   { key: 'diagnosis', icon: FileSearch, title: '简历诊断', desc: 'AI 体检打分 + 漏洞挖掘，给简历开药方' },
   { key: 'interview', icon: Swords, title: '模拟面试', desc: 'LangGraph 驱动的动态追问，打破砂锅问到底' },
   { key: 'questions', icon: Library, title: '真题题库', desc: '字节 / 腾讯等大厂面经，按分类检索' },
+  { key: 'practice', icon: Dumbbell, title: '刷题练习', desc: '逐题作答，AI 教练批改打分 + 参考要点' },
   { key: 'archive', icon: TrendingUp, title: '成长档案', desc: '历次评估报告与五维分数趋势' },
 ]
 

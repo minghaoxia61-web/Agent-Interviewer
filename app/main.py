@@ -8,8 +8,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import (routes_applications, routes_interview, routes_report,
-                     routes_resume, routes_workbench)
+from app.api import (routes_applications, routes_interview, routes_practice,
+                     routes_report, routes_resume, routes_workbench)
 from app.core.config import BASE_DIR, settings
 from app.core.security import guard_http
 from app.services.orchestrator import ORCHESTRATOR
@@ -36,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_report.router, dependencies=guard)
     app.include_router(routes_workbench.router, dependencies=guard)
     app.include_router(routes_applications.router, dependencies=guard)
+    app.include_router(routes_practice.router, dependencies=guard)
 
     @app.get("/api/health", tags=["system"])
     def health():
