@@ -28,3 +28,5 @@ data/applications.json
 data/chroma/
 .pytest_cache/
 tools/
+data/rai.db
+data/*.db-*

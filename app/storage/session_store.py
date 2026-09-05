@@ -1,4 +1,10 @@
-"""会话存储 + Trace Recorder（内存态会话 + 磁盘 JSONL 轨迹落盘）。"""
+"""会话存储 + Trace Recorder（SQLite 持久化 + 内存缓存 + JSONL 轨迹落盘）。
+
+- 会话以行形式存入 SQLite（复杂字段 JSON TEXT 列），每轮对话原子 upsert；
+- 内存缓存加速读取，SQLite 是唯一事实来源（重启后自动恢复）；
+- Trace 仍为逐行 JSONL（追加型事件日志，与关系数据分离）；
+- 旧版 JSON 快照（data/sessions/*.json）在启动时自动一次性导入。
+"""
 import json
 import threading
 import time
@@ -7,7 +13,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from app.core.config import settings
+from app.storage import db
 
 
 @dataclass
@@ -43,55 +51,102 @@ class Session:
 
 
 class SessionStore:
-    # 会话快照里持久化的字段（graph 为运行时对象，不落盘）
-    _PERSISTED = ("id", "created_at", "target_position", "resume", "weaknesses",
-                  "diagnosis", "analysis_status", "analysis_error", "owner", "messages",
-                  "stage", "focus_idx", "probe_depth",
-                  "current_question", "drill_rounds", "drill_asked", "stress_rounds",
-                  "vagueness_log", "finished", "report_md", "scores", "overall",
-                  "summary", "trace_file")
+    # SQLite 列映射：JSON 列整体读写，其余为标量列
+    _JSON_COLS = ("resume", "weaknesses", "diagnosis", "messages",
+                  "drill_asked", "vagueness_log", "scores")
+    _COLS = ("id", "created_at", "target_position", "owner", "resume", "weaknesses",
+             "diagnosis", "analysis_status", "analysis_error", "messages", "stage",
+             "focus_idx", "probe_depth", "current_question", "drill_rounds",
+             "drill_asked", "stress_rounds", "vagueness_log", "finished",
+             "report_md", "scores", "overall", "summary", "trace_file")
+    _UPSERT_SQL = (
+        f"INSERT OR REPLACE INTO sessions ({', '.join(_COLS)}) "
+        f"VALUES ({', '.join('?' for _ in _COLS)})"
+    )
 
     def __init__(self) -> None:
         self._sessions: Dict[str, Session] = {}
         self._lock = threading.Lock()
-        for d in (settings.traces_dir, settings.reports_dir, settings.uploads_dir,
-                  settings.data_dir / "sessions"):
+        for d in (settings.traces_dir, settings.reports_dir, settings.uploads_dir):
             d.mkdir(parents=True, exist_ok=True)
+        self._migrate_legacy_json()
 
-    def _snap_path(self, sid: str) -> Path:
-        return settings.data_dir / "sessions" / f"{sid}.json"
+    # ---------- 行 <-> 对象 ----------
+    def _to_row(self, sess: Session) -> tuple:
+        vals = []
+        for c in self._COLS:
+            v = getattr(sess, c)
+            if c in self._JSON_COLS:
+                v = db.dumps(v)
+            elif isinstance(v, bool):
+                v = int(v)
+            vals.append(v)
+        return tuple(vals)
 
-    def _save(self, sess: Session) -> None:
-        data = {f: getattr(sess, f) for f in self._PERSISTED}
-        try:
-            self._snap_path(sess.id).write_text(
-                json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        except OSError:
-            pass  # 落盘失败不影响内存态面试
-
-    def _load(self, sid: str) -> Optional[Session]:
-        p = self._snap_path(sid)
-        if not p.exists():
-            return None
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return None
-        defaults = {"messages": [], "weaknesses": [], "resume": {},
-                    "drill_asked": [], "vagueness_log": [], "scores": []}
-        sess = Session(
-            id=data["id"],
-            created_at=data.get("created_at", ""),
-            target_position=data.get("target_position", ""),
-            resume=data.get("resume") or {},
-            weaknesses=data.get("weaknesses") or [],
+    def _from_row(self, row: Dict[str, Any]) -> Session:
+        d = dict(row)
+        for c in self._JSON_COLS:
+            d[c] = db.loads(d.get(c))
+        return Session(
+            id=d.get("id", ""),
+            created_at=d.get("created_at", ""),
+            target_position=d.get("target_position", ""),
+            resume=d.get("resume") or {},
+            weaknesses=d.get("weaknesses") or [],
+            diagnosis=d.get("diagnosis") or {},
+            analysis_status=d.get("analysis_status") or "done",
+            analysis_error=d.get("analysis_error") or "",
+            owner=d.get("owner") or "anonymous",
+            messages=d.get("messages") or [],
+            stage=d.get("stage") or "intro",
+            focus_idx=d.get("focus_idx") or 0,
+            probe_depth=d.get("probe_depth") or 0,
+            current_question=d.get("current_question") or "",
+            drill_rounds=d.get("drill_rounds") or 0,
+            drill_asked=d.get("drill_asked") or [],
+            stress_rounds=d.get("stress_rounds") or 0,
+            vagueness_log=d.get("vagueness_log") or [],
+            finished=bool(d.get("finished")),
+            report_md=d.get("report_md") or "",
+            scores=d.get("scores") or [],
+            overall=d.get("overall") or 0.0,
+            summary=d.get("summary") or "",
+            trace_file=d.get("trace_file") or "",
         )
-        for f in self._PERSISTED:
-            if f in ("id", "created_at", "target_position", "resume", "weaknesses"):
-                continue
-            setattr(sess, f, data.get(f, defaults.get(f, "" if f != "finished" else False)))
-        return sess
 
+    def _upsert(self, sess: Session) -> None:
+        db.execute(self._UPSERT_SQL, self._to_row(sess))
+
+    # ---------- 旧版 JSON 快照一次性导入 ----------
+    def _migrate_legacy_json(self) -> None:
+        legacy_dir = settings.data_dir / "sessions"
+        if not legacy_dir.exists():
+            return
+        moved = 0
+        for p in sorted(legacy_dir.glob("*.json")):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if not data.get("id"):
+                    raise ValueError("no id")
+                row = []
+                for c in self._COLS:
+                    v = data.get(c)
+                    if c in self._JSON_COLS:
+                        v = db.dumps(v if v is not None else [])
+                    elif isinstance(v, bool):
+                        v = int(v)
+                    row.append(v if v is not None else (0 if c in ("focus_idx", "probe_depth", "drill_rounds", "stress_rounds") else (0.0 if c == "overall" else "")))
+                if not data.get("owner"):
+                    row[self._COLS.index("owner")] = "anonymous"
+                db.execute(self._UPSERT_SQL, tuple(row))
+                p.rename(p.with_suffix(".json.imported"))
+                moved += 1
+            except Exception:  # noqa: BLE001 - 单个坏文件不阻塞启动
+                continue
+        if moved:
+            print(f"[RAI] 已从 JSON 快照导入 {moved} 个历史会话到 SQLite")
+
+    # ---------- 公开 API ----------
     def create(self, target_position: str, resume: Dict[str, Any],
                weaknesses: List[Dict[str, Any]],
                diagnosis: Optional[Dict[str, Any]] = None,
@@ -110,27 +165,28 @@ class SessionStore:
         )
         with self._lock:
             self._sessions[sid] = sess
-        self._save(sess)
+        self._upsert(sess)
         return sess
 
     def get(self, sid: str) -> Optional[Session]:
         sess = self._sessions.get(sid)
         if sess is not None:
             return sess
-        # 内存未命中：从磁盘快照恢复（后端重启后"会话不存在"的兜底）
+        # 内存未命中：从 SQLite 恢复（后端重启后"会话不存在"的兜底）
         with self._lock:
             sess = self._sessions.get(sid)
             if sess is not None:
                 return sess
-            sess = self._load(sid)
-            if sess is not None:
+            rows = db.query("SELECT * FROM sessions WHERE id = ?", (sid,))
+            if rows:
+                sess = self._from_row(rows[0])
                 self._sessions[sid] = sess
         return sess
 
     def save(self, sess: Session) -> None:
         with self._lock:
             self._sessions[sess.id] = sess
-        self._save(sess)
+        self._upsert(sess)
 
     def append_message(self, sess: Session, role: str, content: str,
                        stage: str = "", meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -144,7 +200,7 @@ class SessionStore:
         if meta:
             msg["meta"] = meta
         sess.messages.append(msg)
-        self._save(sess)
+        self.save(sess)
         return msg
 
     def append_trace(self, sess: Session, record: Dict[str, Any]) -> None:

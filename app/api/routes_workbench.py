@@ -1,6 +1,4 @@
 """就业工作台 API：仪表盘 / 会话档案 / 真题题库 / LLM 观测。"""
-import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
@@ -8,38 +6,31 @@ from fastapi import APIRouter, Request
 from app.core.config import settings
 from app.core.security import visitor_id
 from app.services.orchestrator import ORCHESTRATOR
+from app.storage import db
 
 router = APIRouter(prefix="/api/workbench", tags=["workbench"])
 
 
 def _load_sessions(owner: str) -> List[Dict[str, Any]]:
-    """读取当前访客的会话快照（含进行中），按创建时间倒序。"""
+    """读取当前访客的会话（含进行中），按创建时间倒序。"""
+    rows = db.query("SELECT * FROM sessions WHERE owner = ? ORDER BY created_at DESC", (owner,))
     out: List[Dict[str, Any]] = []
-    sdir = settings.data_dir / "sessions"
-    if not sdir.exists():
-        return out
-    for p in sorted(sdir.glob("*.json")):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        # 多访客数据隔离：仅返回属于当前访客的会话
-        if data.get("owner", "anonymous") != owner:
-            continue
-        messages = data.get("messages") or []
+    for row in rows:
+        messages = db.loads(row.get("messages"), [])
+        resume = db.loads(row.get("resume"), {}) or {}
+        diagnosis = db.loads(row.get("diagnosis"), {}) or {}
         out.append({
-            "id": data.get("id", p.stem),
-            "created_at": data.get("created_at", ""),
-            "target_position": data.get("target_position", ""),
-            "finished": bool(data.get("finished")),
-            "stage": data.get("stage", "intro"),
-            "overall": data.get("overall") or None,
+            "id": row.get("id", ""),
+            "created_at": row.get("created_at", ""),
+            "target_position": row.get("target_position", ""),
+            "finished": bool(row.get("finished")),
+            "stage": row.get("stage", "intro"),
+            "overall": row.get("overall") or None,
             "total_turns": sum(1 for m in messages if m.get("role") == "user"),
-            "weakness_count": len(data.get("weaknesses") or []),
-            "diagnosis_overall": (data.get("diagnosis") or {}).get("overall"),
-            "resume_name": (data.get("resume") or {}).get("name", ""),
+            "weakness_count": len(db.loads(row.get("weaknesses"), []) or []),
+            "diagnosis_overall": diagnosis.get("overall"),
+            "resume_name": resume.get("name", ""),
         })
-    out.sort(key=lambda x: x["created_at"], reverse=True)
     return out
 
 

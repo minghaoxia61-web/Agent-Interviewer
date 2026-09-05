@@ -49,5 +49,9 @@ class Settings(BaseSettings):
     def knowledge_dir(self) -> Path:
         return self.data_dir / "knowledge"
 
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "rai.db"
+
 
 settings = Settings()
