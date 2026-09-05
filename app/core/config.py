@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     static_dir: Path = ""            # 生产模式下前端构建产物目录，留空自动探测
     cors_origins: str = "*"
 
+    # 公网部署护栏（AgentX 演示模式）
+    access_token: str = ""           # 非空时所有 API 需携带 X-API-Token（或 ?token=）
+    rate_limit_daily: int = 300      # 每客户端 IP 每日 API 调用上限
+
+    # 检索后端：auto（优先 Chroma，未安装则 BM25）/ bm25 / ngram
+    retriever_mode: str = "auto"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property

@@ -4,13 +4,14 @@
 """
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api import (routes_applications, routes_interview, routes_report,
                      routes_resume, routes_workbench)
 from app.core.config import BASE_DIR, settings
+from app.core.security import guard_http
 from app.services.orchestrator import ORCHESTRATOR
 
 
@@ -27,11 +28,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(routes_resume.router)
-    app.include_router(routes_interview.router)
-    app.include_router(routes_report.router)
-    app.include_router(routes_workbench.router)
-    app.include_router(routes_applications.router)
+    # 安全护栏：令牌 + 每日限额（未配置 ACCESS_TOKEN 时仅限流，本地开发零摩擦）
+    guard = [Depends(guard_http)]
+    app.include_router(routes_resume.router, dependencies=guard)
+    app.include_router(routes_interview.router, dependencies=guard)
+    app.include_router(routes_interview.ws_router)  # WebSocket 守卫在握手内完成
+    app.include_router(routes_report.router, dependencies=guard)
+    app.include_router(routes_workbench.router, dependencies=guard)
+    app.include_router(routes_applications.router, dependencies=guard)
 
     @app.get("/api/health", tags=["system"])
     def health():

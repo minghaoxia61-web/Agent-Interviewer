@@ -76,6 +76,19 @@ class LLMService:
                 continue
         raise ValueError(f"无法从 LLM 输出中解析 JSON: {text[:200]}")
 
+    def chat_json(self, system: str, user: str, temperature: Optional[float] = None) -> Any:
+        """要求 JSON 输出的调用：解析失败自动带提醒重试一次（结构化输出韧性）。"""
+        raw = self.chat(system, user, temperature=temperature)
+        try:
+            return self._extract_json(raw)
+        except ValueError:
+            retry = self.chat(
+                system,
+                user + "\n\n再次强调：只输出一个合法的 JSON，不要任何解释、前后缀或 Markdown 代码块标记。",
+                temperature=0.1,
+            )
+            return self._extract_json(retry)
+
     # ------------------------------------------------------------------
     # 简历：解析 + 漏洞挖掘
     # ------------------------------------------------------------------
@@ -85,7 +98,7 @@ class LLMService:
         user = prompts.RESUME_PARSE_USER_TMPL.format(
             target_position=target_position or "未指定", resume_text=text[:8000]
         )
-        data = self._extract_json(self.chat(prompts.RESUME_PARSE_SYSTEM, user, temperature=0.1))
+        data = self.chat_json(prompts.RESUME_PARSE_SYSTEM, user, temperature=0.1)
         data.setdefault("target_position", target_position)
         data.setdefault("raw_text_chars", len(text))
         return data
@@ -97,7 +110,7 @@ class LLMService:
             target_position=resume.get("target_position") or "未指定",
             resume_json=json.dumps(resume, ensure_ascii=False)[:6000],
         )
-        data = self._extract_json(self.chat(prompts.RESUME_DIG_SYSTEM, user, temperature=0.3))
+        data = self.chat_json(prompts.RESUME_DIG_SYSTEM, user, temperature=0.3)
         if not isinstance(data, list):
             raise ValueError("漏洞挖掘输出不是数组")
         return data[:3]
@@ -110,7 +123,7 @@ class LLMService:
                     target_position=target_position or "未指定",
                     resume_json=json.dumps(resume, ensure_ascii=False)[:6000],
                 )
-                data = self._extract_json(self.chat(prompts.RESUME_DIAGNOSE_SYSTEM, user, temperature=0.2))
+                data = self.chat_json(prompts.RESUME_DIAGNOSE_SYSTEM, user, temperature=0.2)
                 scores = data.get("scores", {})
                 from app.services.diagnosis import DIM_LABELS
 
@@ -209,7 +222,7 @@ class LLMService:
                     jd_text=(jd_text or "")[:6000],
                     resume_json=json.dumps(resume, ensure_ascii=False)[:5000],
                 )
-                data = self._extract_json(self.chat(prompts.JD_MATCH_SYSTEM, user, temperature=0.2))
+                data = self.chat_json(prompts.JD_MATCH_SYSTEM, user, temperature=0.2)
                 matched = [str(k) for k in data.get("matched", [])][:25]
                 missing = [str(k) for k in data.get("missing", [])][:25]
                 return {
@@ -241,7 +254,7 @@ class LLMService:
             stress_rounds=stats.get("stress_rounds", 0),
             transcript=json.dumps(transcript, ensure_ascii=False)[:12000],
         )
-        data = self._extract_json(self.chat(prompts.JUDGE_SYSTEM, user, temperature=0.2))
+        data = self.chat_json(prompts.JUDGE_SYSTEM, user, temperature=0.2)
         if not isinstance(data, dict) or "scores" not in data:
             raise ValueError("Judge 输出格式异常")
         return data

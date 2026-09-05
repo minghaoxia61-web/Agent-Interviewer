@@ -10,7 +10,7 @@ from app.core.agents.graph import build_graph
 from app.core.config import settings
 from app.schemas.interview import STAGE_LABELS
 from app.services.llm import LLMService
-from app.services.rag.retriever import Retriever
+from app.services.rag.retriever import build_retriever
 from app.services.reporter import ReportGenerator
 from app.storage.session_store import STORE, Session
 
@@ -30,7 +30,8 @@ class InterviewFinished(Exception):
 class InterviewOrchestrator:
     def __init__(self) -> None:
         self.llm = LLMService()
-        self.retriever = Retriever(settings.knowledge_dir)
+        self.retriever = build_retriever(settings.knowledge_dir, settings.retriever_mode,
+                                         chroma_dir=settings.data_dir / "chroma")
         self.reporter = ReportGenerator(self.llm)
         self.store = STORE
 
@@ -97,10 +98,19 @@ class InterviewOrchestrator:
         sess = self._require(sid)
         if sess.finished:
             raise InterviewFinished(sid)
-        stage_before = sess.stage
-        result = self._invoke(sess, {"session_id": sid, "stage": sess.stage, "last_user_msg": ""})
-        self._persist(sess, result)
-        return self._turn_response(sess, result, stage_before)
+        with sess.turn_lock:
+            if sess.messages:  # 已开过场：直接返回当前状态，避免重复 intro
+                user_turns = sum(1 for m in sess.messages if m["role"] == "user")
+                return {
+                    "session_id": sess.id, "assistant_message": "", "stage": sess.stage,
+                    "stage_label": STAGE_LABELS.get(sess.stage, sess.stage), "decision": None,
+                    "decision_reasons": [], "probe_depth": sess.probe_depth,
+                    "total_turns": user_turns, "finished": sess.finished,
+                }
+            stage_before = sess.stage
+            result = self._invoke(sess, {"session_id": sid, "stage": sess.stage, "last_user_msg": ""})
+            self._persist(sess, result)
+            return self._turn_response(sess, result, stage_before)
 
     def handle_message(self, sid: str, user_text: str,
                        emit: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
@@ -109,30 +119,34 @@ class InterviewOrchestrator:
             raise InterviewFinished(sid)
         if not (user_text or "").strip():
             raise ValueError("消息不能为空")
-        stage_before = sess.stage
-        self.store.append_message(sess, "user", user_text.strip(), stage=stage_before)
-        self.store.append_trace(sess, {"turn": sum(1 for m in sess.messages if m["role"] == "user"),
-                                       "event": "user_message", "user": user_text.strip(),
-                                       "stage": stage_before})
-        result = self._invoke(sess, {"session_id": sid, "stage": sess.stage,
-                                     "last_user_msg": user_text.strip(), "emit": emit})
-        self._persist(sess, result)
-        return self._turn_response(sess, result, stage_before)
+        with sess.turn_lock:  # 同一会话串行化，防止并发 invoke 竞争状态
+            if sess.finished:
+                raise InterviewFinished(sid)
+            stage_before = sess.stage
+            self.store.append_message(sess, "user", user_text.strip(), stage=stage_before)
+            self.store.append_trace(sess, {"turn": sum(1 for m in sess.messages if m["role"] == "user"),
+                                           "event": "user_message", "user": user_text.strip(),
+                                           "stage": stage_before})
+            result = self._invoke(sess, {"session_id": sid, "stage": sess.stage,
+                                         "last_user_msg": user_text.strip(), "emit": emit})
+            self._persist(sess, result)
+            return self._turn_response(sess, result, stage_before)
 
     # ------------------------------------------------------------------
     def finish(self, sid: str) -> Dict[str, Any]:
         """提前结束面试并生成报告（自然结束时由 evaluate 节点自动调用同一生成器）。"""
         sess = self._require(sid)
-        if not sess.finished:
-            result = self.reporter.generate(sess)
-            sess.overall = result["overall"]
-            sess.summary = result["summary"]
-            sess.scores = result["scores"]
-            sess.report_md = result["markdown"]
-            sess.finished = True
-            sess.stage = "end"
-            self.store.save_report(sess, result["markdown"])
-            self.store.append_trace(sess, {"event": "finish_early"})
+        with sess.turn_lock:
+            if not sess.finished:
+                result = self.reporter.generate(sess)
+                sess.overall = result["overall"]
+                sess.summary = result["summary"]
+                sess.scores = result["scores"]
+                sess.report_md = result["markdown"]
+                sess.finished = True
+                sess.stage = "end"
+                self.store.save_report(sess, result["markdown"])
+                self.store.append_trace(sess, {"event": "finish_early"})
         return self.report_payload(sid)
 
     def report_payload(self, sid: str) -> Dict[str, Any]:

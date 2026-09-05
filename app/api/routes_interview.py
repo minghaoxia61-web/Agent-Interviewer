@@ -3,11 +3,14 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
+from app.core.config import settings
+from app.core.security import limiter, guard_ws
 from app.schemas.interview import (MessageRequest, MessageResponse, SessionStateResponse,
                                    StartResponse)
 from app.services.orchestrator import (ORCHESTRATOR, InterviewFinished, SessionNotFound)
 
 router = APIRouter(tags=["interview"])
+ws_router = APIRouter(tags=["interview-ws"])
 
 
 def _map_orchestrator_error(e: Exception) -> HTTPException:
@@ -55,7 +58,19 @@ async def ws_interview(websocket: WebSocket, session_id: str):
     帧协议（JSON）：
       客户端 -> {"type": "start"} 或 {"type": "message", "data": "..."}
       服务端 <- {"type": "token", "data": "片段"} x N 后接 {"type": "final", ...完整元数据}
+
+    鉴权：配置了 ACCESS_TOKEN 时握手需带 ?token=；每条消息计入当日限额。
     """
+    if not guard_ws(websocket):
+        await websocket.accept()
+        await websocket.close(code=4401, reason="missing or invalid token")
+        return
+    ws_ip = websocket.client.host if websocket.client else "unknown"
+
+    async def _limited() -> bool:
+        # limiter 非线程安全仅靠 GIL 粗粒度可靠，demo 场景可接受
+        return limiter.hit(f"ws:{ws_ip}", settings.rate_limit_daily)
+
     await websocket.accept()
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -65,6 +80,10 @@ async def ws_interview(websocket: WebSocket, session_id: str):
 
     try:
         first = await websocket.receive_json()
+        if not await _limited():
+            await websocket.send_json({"type": "error", "message": "今日调用已达上限，请明天再试"})
+            await websocket.close()
+            return
         if first.get("type") == "start":
             result = await asyncio.to_thread(ORCHESTRATOR.start, session_id)
             text = result["assistant_message"]
@@ -75,6 +94,9 @@ async def ws_interview(websocket: WebSocket, session_id: str):
         while True:
             msg = await websocket.receive_json()
             if msg.get("type") != "message":
+                continue
+            if not await _limited():
+                await websocket.send_json({"type": "error", "message": "今日调用已达上限，请明天再试"})
                 continue
             payload = str(msg.get("data", ""))
             task = asyncio.create_task(

@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 from app.core.config import settings
 
 
@@ -36,6 +35,8 @@ class Session:
     trace_file: str = ""
     # LangGraph 编译产物按会话缓存（图节点通过闭包持有本会话依赖）
     graph: Any = field(default=None, repr=False, compare=False)
+    # 会话级互斥锁：同一会话的并发请求串行化，避免状态竞争
+    turn_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
 
 
 class SessionStore:
