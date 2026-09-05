@@ -24,3 +24,6 @@ data/tmp_*
 .vscode/
 .DS_Store
 Thumbs.db
+data/applications.json
+data/chroma/
+.pytest_cache/
