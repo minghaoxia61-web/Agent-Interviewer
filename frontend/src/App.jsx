@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import {
   Briefcase, Columns3, FileSearch, LayoutDashboard, Library, Swords, TrendingUp,
 } from 'lucide-react'
-import { getSessionState } from './api.js'
+import { getSessionState, setApiToken } from './api.js'
 import Dashboard from './components/Dashboard.jsx'
 import DiagnosisScreen from './components/DiagnosisScreen.jsx'
 import ChatScreen from './components/ChatScreen.jsx'
@@ -122,6 +122,15 @@ export default function App() {
         }
       })
       .catch(() => localStorage.removeItem('rai.lastSession'))
+  }, [])
+
+  // 后端要求访问令牌（401 / WS 4401）时弹出输入框
+  const [showAuth, setShowAuth] = useState(false)
+  const [authInput, setAuthInput] = useState('')
+  useEffect(() => {
+    const need = () => setShowAuth(true)
+    window.addEventListener('rai-auth-required', need)
+    return () => window.removeEventListener('rai-auth-required', need)
   }, [])
 
   // 三角光标跟随键盘焦点（未确认时停在焦点项），移动时触发弹性回弹
@@ -255,6 +264,37 @@ export default function App() {
       {/* P3R 切屏转场：主光带 + 滞后拖影层 */}
       {wipe > 0 && <div key={wipe} className="p3r-wipe" aria-hidden="true" />}
       {wipe > 0 && <div key={`t${wipe}`} className="p3r-wipe trail" aria-hidden="true" />}
+
+      {/* 访问令牌输入 */}
+      {showAuth && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="card p-6 w-full max-w-sm">
+            <p className="font-semibold text-white mb-1">需要访问令牌</p>
+            <p className="text-xs text-slate-500 mb-4">
+              后端已开启访问保护（ACCESS_TOKEN），请输入令牌后继续。
+            </p>
+            <input
+              className="input w-full"
+              placeholder="访问令牌"
+              value={authInput}
+              autoFocus
+              onChange={(e) => setAuthInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && authInput.trim()) {
+                  setApiToken(authInput.trim())
+                  setShowAuth(false)
+                }
+              }}
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button className="btn-ghost" onClick={() => setShowAuth(false)}>取消</button>
+              <button className="btn-primary" onClick={() => { setApiToken(authInput.trim()); setShowAuth(false) }}>
+                保存并继续
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

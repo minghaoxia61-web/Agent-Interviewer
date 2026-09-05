@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bot, Flag, Loader2, SendHorizonal, Swords, User, Zap } from 'lucide-react'
 import {
-  finishInterview, getReport, getSessionState, sendMessage, startInterview, WS_BASE,
+  finishInterview, getReport, getSessionState, sendMessage, startInterview, wsUrl,
 } from '../api.js'
 import { Card } from './ui.jsx'
 
@@ -54,10 +54,13 @@ export default function ChatScreen({ session, onFinished }) {
   function connectWs() {
     return new Promise((resolve, reject) => {
       try {
-        const ws = new WebSocket(`${WS_BASE}/ws/interview/${session.id}`)
+        const ws = new WebSocket(wsUrl(`/ws/interview/${session.id}`))
         ws.onopen = () => { wsReadyRef.current = true; resolve(ws) }
         ws.onerror = () => { if (!wsReadyRef.current) reject(new Error('ws')) }
-        ws.onclose = () => { wsReadyRef.current = false }
+        ws.onclose = (ev) => {
+          wsReadyRef.current = false
+          if (ev.code === 4401) window.dispatchEvent(new CustomEvent('rai-auth-required'))
+        }
         ws.onmessage = (ev) => { try { handleFrame(JSON.parse(ev.data)) } catch { /* 忽略坏帧 */ } }
         wsRef.current = ws
       } catch (e) { reject(e) }
