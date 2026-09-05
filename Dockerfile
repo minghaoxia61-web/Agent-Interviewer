@@ -9,7 +9,10 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ensurepip 离线升级：slim 自带的 pip 24.0 不支持 Metadata-Version 2.4
+# （langgraph>=0.6 等包会报 "is not a supported wheel ... can't be sorted"）
+RUN python -m ensurepip --upgrade && \
+    pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app
 COPY data/ ./data
 COPY --from=ui /ui/dist ./static

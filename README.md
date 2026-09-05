@@ -195,19 +195,44 @@ scripts/            # 评测脚本 / 冒烟测试 / 示例 PDF / headless 截图
 
 ## 部署（公网）
 
-### 方式一：Railway / Render（推荐，自动识别 Dockerfile）
+### 方式一：Render 免费层（推荐，仓库已带 `render.yaml` Blueprint）
 
-1. 仓库推送到 GitHub 后，在 Railway 新建项目 → **Deploy from GitHub repo**（自动用根目录 Dockerfile 构建）；
-2. 在服务 Variables 里配置：
-   - `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`（真实 LLM；留空则 Mock 模式）
+1. 打开 [render.com](https://render.com) → 用 GitHub 登录 → **New → Blueprint**，选择本仓库
+   （会读取 `render.yaml`；也可以手动 **New → Web Service**，runtime 会自动识别 Dockerfile）；
+2. 在环境变量里填写：
    - `ACCESS_TOKEN=<自定义一个随机令牌>`（**必设**，否则接口会被任意调用刷爆额度）
-   - `RATE_LIMIT_DAILY=300`（按需调整）
-3. 生成公网域名（Settings → Networking → Generate Domain）；
-4. 回到 GitHub 仓库 **Settings → Secrets and variables → Actions → Variables** 新建
-   `VITE_API_BASE=https://<后端域名>`，push 任意改动触发 Pages 重部署；
-5. 打开 `https://minghaoxia61-web.github.io/Agent-Interviewer/`，首次请求会弹出令牌输入框，输入第 2 步的令牌即可全功能使用（含 WebSocket 流式）。
+   - `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`（真实 LLM；留空则 Mock 模式）
+3. **Create Web Service** → 等待镜像构建（首次约 5-8 分钟）→ 得到 `https://<服务名>.onrender.com`；
+4. 浏览器打开该地址即是**完整应用**（后端 + 前端同源托管，连 GitHub Pages 都可以不用了）。
 
-### 方式二：云服务器 docker compose
+> 免费层行为：闲置 15 分钟自动休眠，首次访问冷启动约 30-60 秒（可配 UptimeRobot 每 10 分钟
+> ping 一次 `/api/health` 保活）；WebSocket 流式面试在免费层可用。
+
+### 方式二：Hugging Face Spaces（免费、无需信用卡、作品集展示友好）
+
+1. [huggingface.co/new-space](https://huggingface.co/new-space) → 命名如 `rai-workbench` → **SDK 选 Docker**（Blank 模板）→ Public 创建；
+2. 本地执行（把现有仓库直接推到 Space，需要一个带 Space 元数据的 README）：
+   ```bash
+   git remote add space https://huggingface.co/spaces/<你的用户名>/rai-workbench
+   git push space main:main --force
+   ```
+   首次 push 前需要给仓库根 `README.md` 顶部加上 Space 元数据（或单独建一个孤儿分支维护它）：
+   ```markdown
+   ---
+   title: RAI Workbench
+   emoji: 🎯
+   colorFrom: indigo
+   colorTo: purple
+   sdk: docker
+   app_port: 8000
+   pinned: false
+   ---
+   ```
+3. 在 Space 的 **Settings → Variables and secrets** 添加 `ACCESS_TOKEN` 与 LLM 相关变量；
+4. Space 构建完成后地址为 `https://<用户名>-rai-workbench.hf.space`，WebSocket 可用。
+   注意：免费 Space 的磁盘是临时的（重启后 sessions/traces 清空），72 天无访问会休眠。
+
+### 方式三：云服务器 docker compose
 
 ```bash
 cp .env.example .env   # 填 Key 与 ACCESS_TOKEN
@@ -215,7 +240,7 @@ docker compose up --build -d
 # 单容器：前端构建产物由 FastAPI 托管，访问 http://<服务器IP>:8000
 ```
 
-### GitHub Pages（仅前端 UI 演示）
+### GitHub Pages（纯前端 UI 演示，可选）
 
 仓库已带 `.github/workflows/deploy-pages.yml`：push main 即自动构建并发布静态前端。
 启用一次即可（需手动在 GitHub 操作）：

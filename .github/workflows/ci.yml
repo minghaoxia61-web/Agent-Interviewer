@@ -24,6 +24,21 @@ jobs:
       - name: Run pytest
         run: pytest -q
 
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image（验证 Dockerfile 与 pip 依赖解析）
+        run: docker build -t rai-ci-test .
+      - name: Smoke check（容器内健康检查）
+        run: |
+          docker run -d --name rai-ci -p 8000:8000 -e RETRIEVER_MODE=bm25 rai-ci-test
+          for i in $(seq 1 20); do
+            sleep 2
+            if curl -sf http://localhost:8000/api/health > /dev/null; then echo OK; exit 0; fi
+          done
+          echo "health check failed"; docker logs rai-ci; exit 1
+
   frontend-build:
     runs-on: ubuntu-latest
     steps:
