@@ -187,3 +187,14 @@ def test_ws_stream_start_and_message(client):
     assert any(f["type"] == "token" for f in frames), "开场必须流式输出 token 帧"
     assert frames[-1]["assistant_message"]
     assert frames[-1]["stage"] == "project_probing"
+
+
+def test_jd_history_accumulates(client):
+    sid = _upload(client)["session_id"]
+    jd = "负责高并发后端服务，使用 Python/Redis/Kafka，熟悉 MySQL 与 Docker。"
+    r1 = client.post(f"/api/resume/{sid}/jd-match", json={"jd": jd}).json()
+    r2 = client.post(f"/api/resume/{sid}/jd-match",
+                     json={"jd": jd + "加分项：有 Kubernetes 与 gRPC 实践。"}).json()
+    assert r1["history"] is not None and r2["history"] is not None
+    assert len(r2["history"]) == 2, "两次分析应产生两条历史记录"
+    assert all("match_score" in h for h in r2["history"])

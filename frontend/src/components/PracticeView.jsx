@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import {
-  CheckCircle2, Dumbbell, GraduationCap, History, Loader2, SendHorizonal, XCircle,
+  CheckCircle2, Dumbbell, GraduationCap, History, Loader2, SendHorizonal, TrendingUp, XCircle,
 } from 'lucide-react'
 import {
   getPractice, getPracticeHistory, getPracticeMistakes,
   startPractice, startPracticeFromMistakes, submitPracticeAnswer,
 } from '../api.js'
 import { Card, SectionTitle, ScoreRing } from './ui.jsx'
+import TrendChart from './TrendChart.jsx'
 
 const AVG = (arr) => arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : null
 
@@ -165,6 +166,17 @@ export default function PracticeView() {
           <button className="btn-primary" onClick={() => { setActive(null); setLastFeedback(null) }}>
             <Dumbbell className="w-4 h-4" /> 再来一组
           </button>
+        </Card>
+      )}
+
+      {/* 练习趋势 */}
+      {history && history.length > 0 && (
+        <Card className="p-6">
+          <SectionTitle icon={TrendingUp} title="练习趋势" desc="每组练习的平均得分（0-10）" />
+          <TrendChart points={history.filter((h) => h.avg_score != null).map((h) => ({
+            label: (h.created_at || '').slice(5, 10),
+            value: h.avg_score,
+          }))} max={10} />
         </Card>
       )}
 

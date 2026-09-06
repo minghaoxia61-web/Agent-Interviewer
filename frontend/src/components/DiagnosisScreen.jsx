@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import { getAnalysis, matchJd, uploadResume } from '../api.js'
 import { Card, DimBar, ScoreChip, ScoreRing, SectionTitle } from './ui.jsx'
+import TrendChart from './TrendChart.jsx'
 
 const DIM_LABELS = {
   quantified: '量化程度', project_depth: '项目深度', keyword_match: '岗位匹配',
@@ -237,6 +238,15 @@ export default function DiagnosisScreen({ onUploaded, go }) {
                     </p>
                   </div>
                 </div>
+                {jdResult.history && jdResult.history.length > 1 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-slate-400 mb-1">匹配度趋势（按分析时间）</p>
+                    <TrendChart points={jdResult.history.map((h, i) => ({
+                      label: (h.ts || '').slice(11, 16) || `#${i + 1}`,
+                      value: h.match_score,
+                    }))} max={100} />
+                  </div>
+                )}
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4">
                     <p className="text-xs font-semibold text-emerald-300 mb-2.5">✓ 已体现（{jdResult.matched.length}）</p>
