@@ -62,11 +62,13 @@ export default function Dashboard({ go, onResume, llmMode }) {
       {data?.llm_stats && (
         <Card className="p-5">
           <SectionTitle icon={Zap} title="LLM 调用观测" desc="真实模型调用的次数与耗时（进程内统计）" />
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
             <div><p className="text-xl font-bold text-white">{data.llm_stats.calls}</p><p className="text-xs text-slate-500">调用次数</p></div>
             <div><p className="text-xl font-bold text-white">{data.llm_stats.avg_ms}<span className="text-xs">ms</span></p><p className="text-xs text-slate-500">平均耗时</p></div>
+            <div><p className="text-xl font-bold text-white">{data.llm_stats.cache_hits ?? 0}</p><p className="text-xs text-slate-500">缓存命中</p></div>
             <div><p className="text-xl font-bold text-white">{data.llm_stats.retries}</p><p className="text-xs text-slate-500">结构化重试</p></div>
-            <div><p className="text-xl font-bold text-white">{data.llm_stats.errors}</p><p className="text-xs text-slate-500">失败次数</p></div>
+            <div><p className="text-xl font-bold text-white">{data.llm_stats.est_tokens ?? 0}</p><p className="text-xs text-slate-500">估算 tokens</p></div>
+            <div><p className="text-xl font-bold text-white">¥{(data.llm_stats.est_cost ?? 0).toFixed(2)}</p><p className="text-xs text-slate-500">估算成本</p></div>
           </div>
         </Card>
       )}

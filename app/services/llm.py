@@ -70,6 +70,11 @@ class LLMService:
         self.stats["total_ms"] = round(self.stats["total_ms"] + ms, 1)
         self.stats["chars_in"] += chars_in
         self.stats["chars_out"] += chars_out
+        # 成本估算：中文场景 ~2 字符/token，按 LLM_PRICE_PER_1K_TOKENS 折算
+        tokens = (chars_in + chars_out) // 2
+        self.stats["est_tokens"] = self.stats.get("est_tokens", 0) + tokens
+        self.stats["est_cost"] = round(
+            self.stats.get("est_cost", 0.0) + tokens / 1000 * settings.llm_price_per_1k_tokens, 4)
         self.recent_calls.append({"kind": kind, "ms": ms, "chars_in": chars_in,
                                   "chars_out": chars_out})
         del self.recent_calls[:-50]

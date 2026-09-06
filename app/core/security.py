@@ -59,15 +59,29 @@ def guard_ws(websocket: WebSocket) -> bool:
 
 
 def visitor_id(request: Request) -> str:
-    """访客标识：前端生成的随机 ID（X-Visitor-Id 头），用于数据隔离。
+    """请求身份解析：优先 GitHub 登录令牌，其次浏览器访客 ID。
 
-    注意这是隐私隔离而非安全边界——目的是多人访问公开演示时互不可见对方数据。
+    这是隐私隔离而非安全边界——目的是多人访问公开演示时互不可见对方数据。
     """
+    lt = request.headers.get("X-Login-Token")
+    if lt:
+        from app.core.auth import verify_login_token
+
+        owner = verify_login_token(lt)
+        if owner:
+            return owner
     v = (request.headers.get("X-Visitor-Id") or request.query_params.get("vid") or "").strip()
     return v[:64] or "anonymous"
 
 
 def visitor_id_ws(websocket: WebSocket) -> str:
+    lt = websocket.query_params.get("login", "")
+    if lt:
+        from app.core.auth import verify_login_token
+
+        owner = verify_login_token(lt)
+        if owner:
+            return owner
     return (websocket.query_params.get("vid") or "").strip()[:64] or "anonymous"
 
 

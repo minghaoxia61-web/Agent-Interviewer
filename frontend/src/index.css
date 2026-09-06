@@ -365,3 +365,15 @@ body {
   .keybar .kb { white-space: nowrap; }
   .keybar .kb-brand { display: none; }
 }
+
+/* ---------- 打印 / 导出 PDF ---------- */
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  header.hud, nav.mnav, footer.keybar, .menu, aside, button, .p3r-wipe, .no-print { display: none !important; }
+  .shell, .content, main { display: block !important; padding: 0 !important; margin: 0 !important; }
+  .card { border: 1px solid #ddd !important; background: #fff !important; box-shadow: none !important; break-inside: avoid; }
+  .report-body, .report-body * { color: #000 !important; }
+  .report-body code { background: #eee !important; color: #333 !important; }
+  .report-body table th, .report-body table td { border-color: #999 !important; color: #000 !important; }
+  .text-white, .text-slate-200, .text-slate-300, .text-slate-400, .text-slate-500, .text-indigo-300 { color: #222 !important; }
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import {
   Briefcase, Columns3, Dumbbell, FileSearch, LayoutDashboard, Library, Swords, TrendingUp,
 } from 'lucide-react'
-import { getReport, getReview, getSessionState, setApiToken } from './api.js'
+import { exchangeGithubToken, getGithubAuthUrl, getReport, getReview, getSessionState, setApiToken, verifyLoginToken } from './api.js'
 import Dashboard from './components/Dashboard.jsx'
 import DiagnosisScreen from './components/DiagnosisScreen.jsx'
 import ChatScreen from './components/ChatScreen.jsx'
@@ -43,6 +43,10 @@ export default function App() {
   const [report, setReport] = useState(null)
   const [reviewData, setReviewData] = useState(null)
   const [llmMode, setLlmMode] = useState(null)
+  const [githubEnabled, setGithubEnabled] = useState(false)
+  const [login, setLogin] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('rai.login') || 'null') } catch { return null }
+  })
   const [focusIdx, setFocusIdx] = useState(() => {
     const k = localStorage.getItem('rai.module') || 'dashboard'
     return Math.max(0, NAV.findIndex((n) => n.key === (k === 'report' ? 'archive' : k)))
@@ -114,9 +118,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusIdx, activeIdx, module])
 
-  // 恢复上次未完成的面试会话 + 引擎状态
+  // 恢复上次未完成的面试会话 + 引擎状态 + GitHub OAuth 回调
   useEffect(() => {
-    fetch('/api/health').then((r) => r.json()).then((h) => setLlmMode(h.llm_mode)).catch(() => {})
+    fetch('/api/health').then((r) => r.json()).then((h) => {
+      setLlmMode(h.llm_mode)
+      setGithubEnabled(!!h.github_oauth)
+    }).catch(() => {})
+
+    // OAuth 回调：?code=xxx&state=xxx → 换登录令牌，历史数据迁移到 GitHub 身份
+    const q = new URLSearchParams(window.location.search)
+    const code = q.get('code')
+    const state = q.get('state')
+    if (code && state && state === sessionStorage.getItem('rai.oauth_state')) {
+      sessionStorage.removeItem('rai.oauth_state')
+      const vid = localStorage.getItem('rai.visitor') || ''
+      exchangeGithubToken(code, state, vid)
+        .then((d) => {
+          setLogin(d)
+          window.location.reload()
+        })
+        .catch(() => history.replaceState(null, '', window.location.pathname))
+    }
     const sid = localStorage.getItem('rai.lastSession')
     if (!sid) return
     getSessionState(sid)
@@ -259,6 +281,22 @@ export default function App() {
           ))}
           <div className="menu-foot">
             引擎状态：{llmMode === 'real' ? '真实 LLM' : llmMode === 'mock' ? 'Mock 演示模式' : '连接中…'}
+            {githubEnabled && (
+              login ? (
+                <div className="flex items-center gap-1.5 mt-2">
+                  {login.avatar && <img src={login.avatar} className="w-5 h-5 rounded-full" alt="" />}
+                  <span className="truncate">{login.name}</span>
+                  <button onClick={logout} title="退出登录" className="ml-auto text-slate-500 hover:text-white">
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={startGithubLogin}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 text-xs px-2 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white">
+                  <Github className="w-3.5 h-3.5" /> GitHub 登录
+                </button>
+              )
+            )}
           </div>
         </nav>
 

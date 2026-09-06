@@ -46,6 +46,13 @@ async def upload_resume(request: Request,
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"简历文本提取失败：{e}") from e
 
+    # 扫描件/图片型 PDF：提取不到文字层
+    if suffix == ".pdf" and len(text.strip()) < 50:
+        raise HTTPException(
+            status_code=422,
+            detail="这份 PDF 里没有检测到可提取的文字（可能是扫描件或图片型 PDF）。"
+                   "请从源文件重新导出「文字版 PDF」，或改传 Markdown / TXT 简历。")
+
     try:
         parsed, mode = parse_resume(llm, text, target_position.strip())
     except ValueError as e:

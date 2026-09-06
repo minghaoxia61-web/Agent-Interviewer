@@ -1,6 +1,6 @@
 """题库练习模式路由：选一组真题 → 逐题作答 → LLM 教练批改 + 参考要点。"""
 import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -77,6 +77,33 @@ def submit_answer(pid: str, body: PracticeAnswer, request: Request):
 @router.get("/history")
 def practice_history(request: Request):
     return PRACTICES.list(visitor_id(request))
+
+
+@router.get("/mistakes")
+def practice_mistakes(request: Request, threshold: float = 6.0):
+    items = PRACTICES.mistakes(visitor_id(request), threshold)
+    return {"total": len(items), "items": items}
+
+
+class MistakeStart(BaseModel):
+    question_ids: List[str]
+
+
+@router.post("/mistakes/start")
+def start_mistakes(body: MistakeStart, request: Request):
+    """错题重练：按错题的题目 ID 重新组卷。"""
+    entries = {e.id: e for e in ORCHESTRATOR.retriever.entries}
+    items = []
+    for qid in body.question_ids[:10]:
+        e = entries.get(qid)
+        if e:
+            items.append({"qid": e.id, "question": e.question,
+                          "answer": None, "score": None, "feedback": None})
+    if not items:
+        raise HTTPException(status_code=422, detail="没有可重练的错题（题目可能已下架）")
+    pid = PRACTICES.create(visitor_id(request), items)
+    return {"practice_id": pid, "index": 0, "total": len(items),
+            "question": items[0]["question"]}
 
 
 @router.get("/{pid}")

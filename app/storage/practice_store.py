@@ -41,6 +41,26 @@ class PracticeStore:
             })
         return out
 
+    def mistakes(self, owner: str, threshold: float = 6.0) -> List[Dict[str, Any]]:
+        """跨练习聚合低分题（按题去重，保留最低分），升序返回。"""
+        rows = db.query("SELECT items FROM practice WHERE owner = ? ORDER BY created_at DESC",
+                        (owner,))
+        out, seen = [], {}
+        for r in rows:
+            for it in db.loads(r.get("items"), []) or []:
+                qid, score = it.get("qid"), it.get("score")
+                if not qid or score is None or not it.get("answer"):
+                    continue
+                if score >= threshold:
+                    continue
+                if qid in seen and seen[qid]["score"] <= score:
+                    continue
+                seen[qid] = True
+                out.append({"qid": qid, "question": it.get("question", ""),
+                            "score": score, "answer": it.get("answer")})
+        out.sort(key=lambda x: x["score"])
+        return out
+
 
 def uuid_hex() -> str:
     import uuid

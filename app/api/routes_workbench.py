@@ -73,6 +73,14 @@ def llm_stats() -> Dict[str, Any]:
     return s
 
 
+@router.post("/maintenance")
+def run_maintenance() -> Dict[str, Any]:
+    """手动触发保留策略清理（启动时也会自动执行一次）。"""
+    from app.core.maintenance import sweep_expired
+
+    return sweep_expired()
+
+
 @router.get("/questions")
 def list_questions(q: Optional[str] = None, category: Optional[str] = None,
                    company: Optional[str] = None) -> Dict[str, Any]:

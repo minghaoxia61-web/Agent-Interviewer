@@ -76,6 +76,10 @@ CREATE TABLE IF NOT EXISTS practice (
   items TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_practice_owner ON practice(owner);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 """
 
 

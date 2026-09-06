@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     # LangGraph SqliteSaver checkpointer（图状态断点落盘）
     use_checkpointer: bool = True
 
+    # 数据保留天数：过期的 trace/报告/已完成会话在启动时自动清理；0 = 永久保留
+    retention_days: int = 30
+
+    # GitHub OAuth 登录（留空 = 不启用登录入口，访客模式）
+    github_client_id: str = ""
+    github_client_secret: str = ""
+
+    # LLM 成本估算：每 1000 token 的价格（元），用于观测面板的成本折算
+    llm_price_per_1k_tokens: float = 0.0
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property

@@ -66,6 +66,10 @@ class ApplicationStore:
             "timeline": db.loads(row.get("timeline"), []),
         }
 
+    def reassign_owner(self, old: str, new: str) -> int:
+        db.execute("UPDATE applications SET owner = ? WHERE owner = ?", (new, old))
+        return 1
+
     def list(self, owner: str = "") -> List[Dict[str, Any]]:
         rows = db.query("SELECT * FROM applications WHERE owner = ? ORDER BY updated_at DESC",
                         (owner,))

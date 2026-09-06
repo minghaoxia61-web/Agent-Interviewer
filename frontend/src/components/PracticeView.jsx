@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import {
   CheckCircle2, Dumbbell, GraduationCap, History, Loader2, SendHorizonal, XCircle,
 } from 'lucide-react'
-import { getPractice, getPracticeHistory, startPractice, submitPracticeAnswer } from '../api.js'
+import {
+  getPractice, getPracticeHistory, getPracticeMistakes,
+  startPractice, startPracticeFromMistakes, submitPracticeAnswer,
+} from '../api.js'
 import { Card, SectionTitle, ScoreRing } from './ui.jsx'
 
 const AVG = (arr) => arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : null
@@ -18,7 +21,12 @@ export default function PracticeView() {
   const [lastFeedback, setLastFeedback] = useState(null)
   const [error, setError] = useState('')
 
-  useEffect(() => { getPracticeHistory().then(setHistory).catch(() => {}) }, [])
+  const [mistakes, setMistakes] = useState(null)
+
+  useEffect(() => {
+    getPracticeHistory().then(setHistory).catch(() => {})
+    getPracticeMistakes().then((d) => setMistakes(d.items)).catch(() => {})
+  }, [])
 
   const items = active?.items || []
   const idx = items.findIndex((it) => it.answer === null || it.answer === undefined)
@@ -156,6 +164,31 @@ export default function PracticeView() {
           </div>
           <button className="btn-primary" onClick={() => { setActive(null); setLastFeedback(null) }}>
             <Dumbbell className="w-4 h-4" /> 再来一组
+          </button>
+        </Card>
+      )}
+
+      {/* 错题本 */}
+      {mistakes && mistakes.length > 0 && (
+        <Card className="p-6">
+          <SectionTitle icon={XCircle} title={`错题本（${mistakes.length}）`}
+            desc="练习中低于 6 分的题目，聚合后可一键重练" />
+          <div className="space-y-2">
+            {mistakes.map((m) => (
+              <div key={m.qid} className="flex items-center gap-3 text-sm px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800">
+                <span className={`chip ${m.score < 4 ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'}`}>
+                  {m.score} 分
+                </span>
+                <span className="flex-1 text-slate-300 truncate">{m.question}</span>
+              </div>
+            ))}
+          </div>
+          <button className="btn-primary mt-4" onClick={() => {
+            startPracticeFromMistakes(mistakes.map((m) => m.qid))
+              .then((d) => { setActive({ id: d.practice_id, ...d }); setLastFeedback(null) })
+              .catch((e) => setError(e.message))
+          }}>
+            <Dumbbell className="w-4 h-4" /> 错题重练（{mistakes.length} 题）
           </button>
         </Card>
       )}

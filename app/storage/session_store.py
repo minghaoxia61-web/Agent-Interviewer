@@ -185,6 +185,17 @@ class SessionStore:
                 self._sessions[sid] = sess
         return sess
 
+    def reassign_owner(self, old: str, new: str) -> int:
+        """登录身份迁移：把旧访客的会话全部划归新身份（内存 + SQLite）。"""
+        n = 0
+        with self._lock:
+            for sess in self._sessions.values():
+                if sess.owner == old:
+                    sess.owner = new
+                    n += 1
+        db.execute("UPDATE sessions SET owner = ? WHERE owner = ?", (new, old))
+        return n
+
     def save(self, sess: Session) -> None:
         with self._lock:
             self._sessions[sess.id] = sess

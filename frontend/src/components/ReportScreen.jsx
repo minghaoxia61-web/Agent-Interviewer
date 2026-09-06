@@ -24,7 +24,12 @@ export default function ReportScreen({ report, onBack, onRestart, onReview }) {
             会话 {report.session_id} · 综合得分 <ScoreChip value={report.overall} suffix=" / 10" />
           </p>
         </div>
-        <button className="btn-primary" onClick={onRestart}><RotateCcw className="w-4 h-4" /> 再战一场</button>
+        <div className="no-print flex gap-2">
+          <button className="btn-ghost" onClick={() => window.print()}>
+            <Printer className="w-4 h-4" /> 导出 PDF
+          </button>
+          <button className="btn-primary" onClick={onRestart}><RotateCcw className="w-4 h-4" /> 再战一场</button>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-[1fr_1.2fr] gap-6 items-stretch">
